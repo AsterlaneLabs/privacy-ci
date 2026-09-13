@@ -75,7 +75,7 @@ final class VerifyCommand extends Command
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES,
             ));
         } else {
-            $this->writeReport((new VerificationReport($this->output->isDecorated()))->render($result));
+            $this->writeReport((new VerificationReport($this->reportsAreDecorated()))->render($result));
         }
 
         if (! $result->passed()) {

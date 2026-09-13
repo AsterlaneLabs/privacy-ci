@@ -64,7 +64,7 @@ final class CheckCommand extends Command
                 'stale_baseline_entries' => count($result->stale),
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         } else {
-            $this->writeReport((new CheckReport($this->output->isDecorated()))->render($result));
+            $this->writeReport((new CheckReport($this->reportsAreDecorated()))->render($result));
         }
 
         if ($result->passes()) {

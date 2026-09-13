@@ -54,7 +54,7 @@ final class DiscoverCommand extends Command
             $this->components->info("Manifest written to {$output}");
         }
 
-        $this->writeReport((new ConsoleReport($this->output->isDecorated()))->render($manifest));
+        $this->writeReport((new ConsoleReport($this->reportsAreDecorated()))->render($manifest));
 
         if ($manifest->blocking() !== []) {
             $this->components->warn(sprintf(
