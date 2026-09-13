@@ -3,11 +3,21 @@
     "description": "Find where personal data lives in your Laravel app, classify it in policy-as-code, and fail CI when new user-linked storage has no policy.",
     "keywords": [
         "laravel",
-        "privacy",
+        "php",
         "gdpr",
+        "privacy",
+        "data-protection",
         "static-analysis",
-        "ci"
+        "ci",
+        "dsar",
+        "personal-data",
+        "compliance"
     ],
+    "homepage": "https://github.com/AsterlaneLabs/privacy-ci",
+    "support": {
+        "issues": "https://github.com/AsterlaneLabs/privacy-ci/issues",
+        "source": "https://github.com/AsterlaneLabs/privacy-ci"
+    },
     "license": "MIT",
     "require": {
         "php": "^8.2",
