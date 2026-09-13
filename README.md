@@ -26,22 +26,15 @@ the clock takes a sprint, and you still cannot prove the deletion worked.
 
 ## Install
 
-Not on Packagist yet. Install from the repository:
-
-```jsonc
-// your-app/composer.json
-"repositories": [
-    { "type": "vcs", "url": "https://github.com/AsterlaneLabs/privacy-ci" }
-],
-"minimum-stability": "dev",
-"prefer-stable": true
-```
-
 ```bash
-composer require privacy-ci/laravel:@dev
+composer require privacy-ci/laravel
 php artisan vendor:publish --tag=privacy-config
 php artisan privacy:discover
 ```
+
+While the version is `0.x` the policy DSL and the command surface may change in
+any minor release. Composer treats `0.x` as breaking by default, so `^0.1` will
+not quietly move you to `0.2`.
 
 To try the erasure lifecycle as well:
 
@@ -954,8 +947,8 @@ composer require privacy-ci/laravel:@dev
 ```
 
 A path repository resolves to `dev-main` from the branch name, which is why the
-`@dev` constraint and `minimum-stability: dev` are needed. Neither applies once
-the package is installed from Packagist by tag.
+`@dev` constraint and `minimum-stability: dev` are needed. Neither applies to a
+normal install, which resolves a tagged version from Packagist.
 
 ## License
 
