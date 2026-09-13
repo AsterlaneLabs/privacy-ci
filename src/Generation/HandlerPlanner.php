@@ -161,6 +161,7 @@ final class HandlerPlanner
             notes: $location->linkage === Linkage::Inferred
                 ? ['inferred by static analysis, confirm this key before relying on it']
                 : [],
+            kind: $location->kind,
             actionable: $location->kind !== LocationKind::ExternalService
                 || $location->classification === Classification::Custom,
         );

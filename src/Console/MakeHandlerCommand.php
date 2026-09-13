@@ -10,7 +10,9 @@ use PrivacyCI\Discovery\Discoverer;
 use PrivacyCI\Discovery\ForeignKeyGraph;
 use PrivacyCI\Discovery\Models\ModelMap;
 use PrivacyCI\Discovery\Scanners\MigrationScanner;
+use PrivacyCI\Manifest\Classification;
 use PrivacyCI\Generation\HandlerGenerator;
+use PrivacyCI\Generation\HandlerPlan;
 use PrivacyCI\Generation\HandlerPlanner;
 use PrivacyCI\Manifest\Subject;
 use PrivacyCI\Generation\NamespacePath;
@@ -98,6 +100,8 @@ final class MakeHandlerCommand extends Command
 
         $this->components->info("Handler written to {$path}");
         $this->reportGaps($plan);
+        $this->reportUnnullableAnonymisation($plan);
+        $this->reportRetainedForeignKeys($plan);
 
         $this->components->twoColumnDetail(
             'Next',
@@ -107,6 +111,113 @@ final class MakeHandlerCommand extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Retaining rows that point at a row we are deleting cannot work either.
+     *
+     * The database refuses the parent delete while a child still references it,
+     * so the erasure stops at the last step with everything else already gone.
+     * Retaining the row while dropping the link is anonymisation, not retention.
+     */
+    private function reportRetainedForeignKeys(HandlerPlan $plan): void
+    {
+        $deleted = [];
+        $retained = [];
+
+        foreach ($plan->steps as $step) {
+            if ($step->table === null) {
+                continue;
+            }
+
+            if ($step->classification === Classification::Delete) {
+                $deleted[$step->table] = true;
+            }
+
+            if ($step->classification === Classification::Retain && $step->foreignKey !== null) {
+                $retained[$step->table] = $step->foreignKey;
+            }
+        }
+
+        $paths = $this->existingPaths('privacy.discovery.migration_paths');
+
+        if ($paths === [] || $retained === [] || $deleted === []) {
+            return;
+        }
+
+        $schema = (new MigrationScanner)->scan($paths);
+        $problems = [];
+
+        foreach ($retained as $table => $column) {
+            if (! $schema->hasTable($table)) {
+                continue;
+            }
+
+            $key = $schema->table($table)->foreignKeyFor($column);
+
+            if ($key !== null && isset($deleted[$key->referencesTable])) {
+                $problems[] = sprintf('%s.%s -> %s', $table, $column, $key->referencesTable);
+            }
+        }
+
+        if ($problems === []) {
+            return;
+        }
+
+        $this->components->warn(sprintf(
+            'These tables are retained but hold a foreign key to a row being deleted, so '
+            .'the delete will be refused: %s. Anonymise the link instead of retaining it, '
+            .'or make the key nullable with ON DELETE SET NULL.',
+            implode(', ', $problems),
+        ));
+    }
+
+    /**
+     * Anonymising a NOT NULL column cannot work, and we know that before it runs.
+     *
+     * The migration already told us the column is not nullable. Letting the
+     * handler find out instead means discovering it during a real erasure, with
+     * some stores already cleared and the database untouched.
+     */
+    private function reportUnnullableAnonymisation(HandlerPlan $plan): void
+    {
+        $paths = $this->existingPaths('privacy.discovery.migration_paths');
+
+        if ($paths === []) {
+            return;
+        }
+
+        $schema = (new MigrationScanner)->scan($paths);
+        $problems = [];
+
+        foreach ($plan->steps as $step) {
+            if ($step->table === null || $step->replacements === []) {
+                continue;
+            }
+
+            foreach ($step->replacements as $column => $value) {
+                if ($value !== null || ! $schema->hasTable($step->table)) {
+                    continue;
+                }
+
+                $definition = $schema->table($step->table)->column((string) $column);
+
+                if ($definition !== null && ! $definition->nullable) {
+                    $problems[] = $step->table.'.'.$column;
+                }
+            }
+        }
+
+        if ($problems === []) {
+            return;
+        }
+
+        $this->components->warn(sprintf(
+            'Anonymising sets these to null, but the schema declares them NOT NULL, so the '
+            .'erasure will fail: %s. Make the columns nullable, or delete the rows instead '
+            .'of anonymising them.',
+            implode(', ', $problems),
+        ));
     }
 
     private function reportGaps(\PrivacyCI\Generation\HandlerPlan $plan): void

@@ -79,7 +79,7 @@ final class Verifier
     private function probeFor(Address $address): ?Probe
     {
         foreach ($this->probes as $probe) {
-            if ($probe->handles($address->kind)) {
+            if ($probe->handles($address)) {
                 return $probe;
             }
         }

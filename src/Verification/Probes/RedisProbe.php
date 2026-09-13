@@ -15,9 +15,11 @@ final class RedisProbe implements Probe
     {
     }
 
-    public function handles(LocationKind $kind): bool
+    public function handles(Address $address): bool
     {
-        return $kind === LocationKind::RedisKey;
+        // A cache key belongs to CacheProbe, which speaks whatever driver the
+        // application configured rather than assuming Redis.
+        return $address->kind === LocationKind::RedisKey && $address->store !== 'cache';
     }
 
     public function exists(Address $address): bool

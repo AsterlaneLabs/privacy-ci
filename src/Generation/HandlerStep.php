@@ -26,6 +26,13 @@ final readonly class HandlerStep
         public ?string $pattern = null,
         public array $notes = [],
         public bool $actionable = true,
+        public ?\PrivacyCI\Manifest\LocationKind $kind = null,
     ) {
+    }
+
+    /** Object storage needs a disk and a path; everything else needs a key. */
+    public function kindIsStorage(): bool
+    {
+        return $this->kind === \PrivacyCI\Manifest\LocationKind::ObjectStorage;
     }
 }

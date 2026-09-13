@@ -29,15 +29,24 @@ final class StaticFlowScannerTest extends TestCase
     }
 
     #[Test]
+    public function the_subject_placeholder_is_normalised(): void
+    {
+        // The policy declares `user:{id}`; the code writes `user:{$userId}`.
+        // If those produce two locations, one key has to be classified twice.
+        $this->assertContains('user:{id}', $this->patterns());
+        $this->assertNotContains('user:{userId}', $this->patterns());
+    }
+
+    #[Test]
     public function it_finds_an_interpolated_cache_key(): void
     {
-        $this->assertContains('user:{userId}', $this->patterns());
+        $this->assertContains('user:{id}', $this->patterns());
     }
 
     #[Test]
     public function it_finds_object_storage_paths(): void
     {
-        $this->assertContains('avatars/{user.id}.jpg', $this->patterns());
+        $this->assertContains('avatars/{id}.jpg', $this->patterns());
     }
 
     #[Test]
@@ -45,15 +54,15 @@ final class StaticFlowScannerTest extends TestCase
     {
         $patterns = $this->patterns();
 
-        $this->assertContains('profile:{user.id}', $patterns);
-        $this->assertContains('settings/{user.getKey()}/v2', $patterns);
+        $this->assertContains('profile:{id}', $patterns);
+        $this->assertContains('settings/{id}/v2', $patterns);
     }
 
     #[Test]
     public function it_attributes_the_write_to_the_named_disk(): void
     {
         foreach ($this->scan() as $finding) {
-            if ($finding->pattern === 'avatars/{user.id}.jpg') {
+            if ($finding->pattern === 'avatars/{id}.jpg') {
                 $this->assertSame('s3', $finding->store, 'Storage::disk("s3") names the store');
                 $this->assertSame(LocationKind::ObjectStorage, $finding->kind);
 
@@ -69,7 +78,7 @@ final class StaticFlowScannerTest extends TestCase
     {
         // The precision problem in one line: report:{reportId} looks identical
         // in shape to user:{userId} and must not be reported.
-        $this->assertNotContains('report:{reportId}', $this->patterns());
+        $this->assertNotContains('report:{id}', $this->patterns());
     }
 
     #[Test]
@@ -85,7 +94,7 @@ final class StaticFlowScannerTest extends TestCase
         // Both collapse to one pattern, so assert we did not add a second.
         $matching = array_filter(
             $this->scan(),
-            static fn (FlowFinding $f): bool => $f->pattern === 'user:{userId}',
+            static fn (FlowFinding $f): bool => $f->pattern === 'user:{id}',
         );
 
         $this->assertCount(1, $matching);
@@ -122,7 +131,7 @@ final class StaticFlowScannerTest extends TestCase
 
         $patterns = array_map(static fn (FlowFinding $f): string => $f->pattern, $findings);
 
-        $this->assertContains('report:{reportId}', $patterns);
-        $this->assertNotContains('avatars/{user.id}.jpg', $patterns);
+        $this->assertContains('report:{id}', $patterns);
+        $this->assertNotContains('avatars/{id}.jpg', $patterns);
     }
 }

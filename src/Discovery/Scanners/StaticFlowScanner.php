@@ -240,7 +240,11 @@ final class StaticFlowScanner
         return new FlowFinding(
             kind: $kind,
             store: $store,
-            pattern: $key['pattern'],
+            // Normalise the subject's placeholder to {id}. Without this the same
+            // Redis key shows up twice, once as user:{userId} from the code and
+            // once as user:{id} from the policy that declares it, and a developer
+            // has to classify both to silence one.
+            pattern: str_replace('{'.$match['matched'].'}', '{id}', $key['pattern']),
             confidence: $match['confidence'],
             evidence: [
                 $origin,

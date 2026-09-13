@@ -56,7 +56,7 @@ final class VerificationTest extends TestCase
             {
             }
 
-            public function handles(LocationKind $kind): bool
+            public function handles(Address $address): bool
             {
                 return true;
             }
@@ -166,9 +166,9 @@ final class VerificationTest extends TestCase
     {
         $narrow = new class implements Probe
         {
-            public function handles(LocationKind $kind): bool
+            public function handles(Address $address): bool
             {
-                return $kind === LocationKind::DatabaseColumn;
+                return $address->kind === LocationKind::DatabaseColumn;
             }
 
             public function exists(Address $address): bool

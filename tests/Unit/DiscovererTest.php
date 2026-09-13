@@ -185,8 +185,8 @@ final class DiscovererTest extends TestCase
             sourcePaths: [__DIR__.'/../fixtures/Flow'],
         );
 
-        $redis = $manifest->location('redis:cache:user:{userId}');
-        $s3 = $manifest->location('storage:s3:avatars/{user.id}.jpg');
+        $redis = $manifest->location('redis:cache:user:{id}');
+        $s3 = $manifest->location('storage:s3:avatars/{id}.jpg');
 
         $this->assertNotNull($redis, 'a Redis key no migration declares');
         $this->assertNotNull($s3, 'an S3 path no migration declares');
@@ -216,7 +216,7 @@ final class DiscovererTest extends TestCase
     public function static_analysis_is_absent_without_source_paths(): void
     {
         $this->assertNull(
-            $this->discover()->location('redis:cache:user:{userId}'),
+            $this->discover()->location('redis:cache:user:{id}'),
             'Stage B must be opt-in',
         );
     }

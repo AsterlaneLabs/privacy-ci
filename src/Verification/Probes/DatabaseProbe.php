@@ -15,9 +15,9 @@ final class DatabaseProbe implements Probe
     {
     }
 
-    public function handles(LocationKind $kind): bool
+    public function handles(Address $address): bool
     {
-        return $kind === LocationKind::DatabaseColumn;
+        return $address->kind === LocationKind::DatabaseColumn;
     }
 
     public function exists(Address $address): bool

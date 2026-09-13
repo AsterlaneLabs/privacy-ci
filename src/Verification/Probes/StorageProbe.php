@@ -15,9 +15,9 @@ final class StorageProbe implements Probe
     {
     }
 
-    public function handles(LocationKind $kind): bool
+    public function handles(Address $address): bool
     {
-        return $kind === LocationKind::ObjectStorage;
+        return $address->kind === LocationKind::ObjectStorage;
     }
 
     public function exists(Address $address): bool

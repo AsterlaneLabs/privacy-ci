@@ -152,6 +152,7 @@ return [
         'probes' => [
             \PrivacyCI\Verification\Probes\DatabaseProbe::class,
             \PrivacyCI\Verification\Probes\StorageProbe::class,
+            \PrivacyCI\Verification\Probes\CacheProbe::class,
             // \PrivacyCI\Verification\Probes\RedisProbe::class,
         ],
     ],

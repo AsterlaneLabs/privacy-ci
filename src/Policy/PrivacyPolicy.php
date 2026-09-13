@@ -105,6 +105,18 @@ abstract class PrivacyPolicy
             ->using($handler);
     }
 
+    /**
+     * A key written through the cache, whatever driver backs it.
+     *
+     * Prefer this over deleteRedis() for anything Cache::put() wrote: the
+     * generated handler then calls Cache::forget(), which works on a file or
+     * array driver as well as on Redis.
+     */
+    protected function deleteCache(string $pattern): Rule
+    {
+        return $this->push($pattern, Classification::Delete, LocationKind::RedisKey, null, 'cache');
+    }
+
     protected function deleteRedis(string $pattern, string $connection = 'default'): Rule
     {
         return $this->push($pattern, Classification::Delete, LocationKind::RedisKey, null, $connection);

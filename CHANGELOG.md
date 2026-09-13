@@ -43,6 +43,16 @@ far more slowly, a newer package should still read an older manifest.
 - **`vendor/bin/privacy-ci`**, runs discovery and the CI check with no Laravel
   boot and no database.
 
+### Added later in development
+
+- `deleteCache()` policy rule, so a key written with `Cache::put()` is cleared
+  with `Cache::forget()` rather than by reaching for Redis directly.
+- `CacheProbe`, registered by default, which verifies against whatever cache
+  driver the application uses.
+- Warnings for three policies that cannot execute: a subject root that does not
+  exist, anonymising a `NOT NULL` column, and retaining rows that hold a foreign
+  key to a row being deleted.
+
 ### Not built yet
 
 - Synthetic-subject verification: sweeping a staging store for an identifier,

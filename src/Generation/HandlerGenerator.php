@@ -132,9 +132,11 @@ final class HandlerGenerator
         $store = (string) $step->store;
 
         return match (true) {
-            str_contains((string) $step->pattern, '/') => [
+            $step->kindIsStorage() => [
                 sprintf("Storage::disk('%s')->delete(\"%s\");", $store, $pattern),
             ],
+            // Written through the cache, so clear it through the cache.
+            $store === 'cache' => [sprintf('Cache::forget("%s");', $pattern)],
             default => [sprintf('Redis::del("%s");', $pattern)],
         };
     }
@@ -222,9 +224,11 @@ final class HandlerGenerator
             }
 
             if ($step->pattern !== null) {
-                $uses[] = str_contains($step->pattern, '/')
-                    ? 'Illuminate\\Support\\Facades\\Storage'
-                    : 'Illuminate\\Support\\Facades\\Redis';
+                $uses[] = match (true) {
+                    $step->kindIsStorage() => 'Illuminate\\Support\\Facades\\Storage',
+                    $step->store === 'cache' => 'Illuminate\\Support\\Facades\\Cache',
+                    default => 'Illuminate\\Support\\Facades\\Redis',
+                };
             }
 
             if ($step->pattern === null && $step->modelClass === null && $step->handler === null) {
