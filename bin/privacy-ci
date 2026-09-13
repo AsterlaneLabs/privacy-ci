@@ -1,0 +1,148 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Standalone runner: discovery with no Laravel boot and no database.
+ *
+ * Exists so the scanner can run in CI against a bare checkout, and so the
+ * framework-independent core stays honest: if this file ever needs Laravel,
+ * the core has leaked.
+ */
+
+use PrivacyCI\Baseline\Baseline;
+use PrivacyCI\Check\PolicyCheck;
+use PrivacyCI\Discovery\Discoverer;
+use PrivacyCI\Discovery\Scanners\ModelScanner;
+use PrivacyCI\Manifest\Subject;
+use PrivacyCI\Policy\InvalidPolicy;
+use PrivacyCI\Policy\PolicyCompiler;
+use PrivacyCI\Policy\PolicyLoader;
+use PrivacyCI\Reporting\CheckReport;
+use PrivacyCI\Reporting\ConsoleReport;
+
+foreach ([__DIR__.'/../vendor/autoload.php', __DIR__.'/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+$options = getopt('', [
+    'path:', 'subject:', 'root:', 'policies:', 'baseline:', 'source:', 'min-confidence:',
+    'check', 'no-static', 'write-baseline', 'json', 'no-ansi', 'help',
+]) ?: [];
+
+if (isset($options['help'])) {
+    fwrite(STDOUT, <<<TXT
+    privacy-ci: find where personal data lives
+
+    Usage:
+      privacy-ci [--path=DIR] [--subject=user] [--root=users.id] [--json] [--no-ansi]
+
+      --path      Application root to scan (default: current directory)
+      --subject   Name of the data subject (default: user)
+      --root      Column identifying the subject (default: users.id)
+      --policies  Directory of privacy policies (default: app/Privacy)
+      --check     Fail (exit 1) on new unclassified user-linked storage
+      --baseline  Baseline file (default: <path>/privacy-baseline.json)
+      --source    Code to scan for data flows (default: <path>/app)
+      --no-static Skip static analysis of application code
+      --min-confidence  Hide findings below this score (default: 0.25)
+      --write-baseline  Record current findings as pre-existing, then exit
+      --json      Emit the findings manifest instead of a report
+      --no-ansi   Disable colour
+
+    TXT);
+    exit(0);
+}
+
+$root = rtrim((string) ($options['path'] ?? getcwd()), '/');
+
+if (! is_dir($root)) {
+    fwrite(STDERR, "Not a directory: {$root}\n");
+    exit(2);
+}
+
+$migrationPaths = array_values(array_filter([$root.'/database/migrations'], 'is_dir'));
+
+if ($migrationPaths === []) {
+    fwrite(STDERR, "No migrations found under {$root}\n");
+    exit(2);
+}
+
+$configPaths = array_values(array_filter([$root.'/config'], 'is_dir'));
+$modelPaths = array_values(array_filter([$root.'/app/Models', $root.'/app'], 'is_dir'));
+$lock = is_file($root.'/composer.lock') ? $root.'/composer.lock' : null;
+
+$sourcePaths = isset($options['no-static'])
+    ? []
+    : array_values(array_filter([(string) ($options['source'] ?? $root.'/app')], 'is_dir'));
+
+// Only scan the first model path that exists, so app/Models does not get walked
+// twice via the broader app/ fallback.
+$modelPaths = $modelPaths === [] ? [] : [$modelPaths[0]];
+
+$manifest = (new Discoverer(minConfidence: (float) ($options['min-confidence'] ?? 0.25)))->discover(
+    project: basename($root),
+    migrationPaths: $migrationPaths,
+    configPaths: $configPaths,
+    composerLock: $lock,
+    subject: new Subject(
+        (string) ($options['subject'] ?? 'user'),
+        (string) ($options['root'] ?? 'users.id'),
+    ),
+    modelPaths: $modelPaths,
+    sourcePaths: $sourcePaths,
+);
+
+$policyPath = (string) ($options['policies'] ?? $root.'/app/Privacy');
+
+if (is_dir($policyPath) || is_file($policyPath)) {
+    try {
+        $policies = (new PolicyLoader)->load([$policyPath]);
+
+        if ($policies !== []) {
+            $manifest = (new PolicyCompiler((new ModelScanner)->scan($modelPaths)))
+                ->apply($manifest, ...$policies);
+        }
+    } catch (InvalidPolicy $e) {
+        fwrite(STDERR, "\nInvalid privacy policy: {$e->getMessage()}\n\n");
+        exit(1);
+    }
+}
+
+if (isset($options['json']) && ! isset($options['check'])) {
+    fwrite(STDOUT, $manifest->toJson()."\n");
+    exit(0);
+}
+
+$ansi = ! isset($options['no-ansi']) && stream_isatty(STDOUT);
+$baselinePath = (string) ($options['baseline'] ?? $root.'/privacy-baseline.json');
+
+if (isset($options['write-baseline'])) {
+    $baseline = Baseline::from($manifest, gmdate('Y-m-d\TH:i:s\Z'));
+
+    if (file_put_contents($baselinePath, $baseline->toJson()) === false) {
+        fwrite(STDERR, "Could not write {$baselinePath}\n");
+        exit(2);
+    }
+
+    fwrite(STDOUT, sprintf("Baselined %d finding(s) to %s\n", $baseline->count(), $baselinePath));
+    exit(0);
+}
+
+if (isset($options['check'])) {
+    $result = (new PolicyCheck)->run($manifest, Baseline::load($baselinePath));
+
+    fwrite(STDOUT, "\n".(new CheckReport($ansi))->render($result)."\n\n");
+
+    exit($result->passes() ? 0 : 1);
+}
+
+fwrite(STDOUT, "\n".(new ConsoleReport($ansi))->render($manifest)."\n\n");
+
+// `discover` reports; it never fails a build. That is the check's job, and only
+// for locations new relative to the committed baseline.
+exit(0);

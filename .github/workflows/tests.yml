@@ -1,0 +1,87 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+        laravel: [12, 13]
+        include:
+          - laravel: 12
+            testbench: 10
+          - laravel: 13
+            testbench: 11
+        exclude:
+          # Laravel 13 requires PHP 8.3 or newer.
+          - php: '8.2'
+            laravel: 13
+
+    name: PHP ${{ matrix.php }} · Laravel ${{ matrix.laravel }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, json, mbstring, pdo, pdo_sqlite, tokenizer
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ matrix.php }}-${{ matrix.laravel }}-${{ hashFiles('composer.json') }}
+
+      - name: Pin the framework version under test
+        run: |
+          composer require --no-interaction --no-update \
+            "illuminate/console:^${{ matrix.laravel }}.0" \
+            "illuminate/support:^${{ matrix.laravel }}.0"
+          composer require --dev --no-interaction --no-update \
+            "illuminate/database:^${{ matrix.laravel }}.0" \
+            "orchestra/testbench:^${{ matrix.testbench }}.0"
+
+      - name: Install
+        run: composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Tests
+        run: vendor/bin/phpunit
+
+  static:
+    runs-on: ubuntu-latest
+    name: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-publish
+
+      - name: Lint every PHP file
+        run: find src bin config database routes tests -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      # The package must never carry an application's real schema. Fixtures are
+      # invented on purpose; this is the guard that keeps them that way.
+      - name: Reject committed .env, keys or dumps
+        run: |
+          if git ls-files | grep -iE '\.(env|pem|key|sql|dump|pdf)$'; then
+            echo "::error::files that must not ship are tracked"
+            exit 1
+          fi

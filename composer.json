@@ -1,0 +1,48 @@
+{
+    "name": "privacy-ci/laravel",
+    "description": "Find where personal data lives in your Laravel app, classify it in policy-as-code, and fail CI when new user-linked storage has no policy.",
+    "keywords": [
+        "laravel",
+        "privacy",
+        "gdpr",
+        "static-analysis",
+        "ci"
+    ],
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "nikic/php-parser": "^5.0",
+        "illuminate/console": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "illuminate/database": "^12.0|^13.0",
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "PrivacyCI\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/privacy-ci"
+    ],
+    "autoload-dev": {
+        "psr-4": {
+            "PrivacyCI\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "PrivacyCI\\PrivacyCIServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
