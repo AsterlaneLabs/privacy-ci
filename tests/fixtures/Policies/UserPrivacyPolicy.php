@@ -21,6 +21,9 @@ class UserPrivacyPolicy extends PrivacyPolicy
         // to fall back to the query builder.
         $this->anonymize('sessions', ['user_id' => null, 'ip_address' => null]);
 
+        // A delete on a table linked by a key, so the generator has to chunk it.
+        $this->delete('audit_entries');
+
         $this->deleteRedis('profile:{id}');
         $this->deleteStorage('avatars/{id}.jpg', disk: 's3');
     }

@@ -23,6 +23,14 @@ use PrivacyCI\Manifest\LocationKind;
  */
 final class HandlerGenerator
 {
+    /**
+     * Rows touched per statement.
+     *
+     * Large enough that a normal subject finishes in one pass, small enough
+     * that an unusual one does not hold a transaction open for minutes.
+     */
+    private const CHUNK = 1000;
+
     public function generate(
         HandlerPlan $plan,
         string $namespace = 'App\\Privacy',
@@ -147,15 +155,24 @@ final class HandlerGenerator
         $pairs = [];
 
         foreach ($step->replacements as $column => $value) {
-            $pairs[] = sprintf("        '%s' => %s,", $column, $this->literal($value));
+            $pairs[] = sprintf("            '%s' => %s,", $column, $this->literal($value));
         }
 
+        // Chunked for the same reason deletes are: one subject can own millions
+        // of rows, and a single UPDATE over all of them is one very long
+        // transaction. The loop ends when nothing matches any more, which for
+        // anonymisation is also the proof that the link is gone.
         return [
-            $this->queryStart($step),
-            sprintf("    ->where('%s', \$subjectId)", (string) $step->foreignKey),
-            '    ->update([',
+            sprintf('// Terminates because %s is among the columns being nulled,', (string) $step->foreignKey),
+            '// so the next pass matches nothing. Keep it that way if you edit this.',
+            'do {',
+            sprintf('    $affected = %s', $this->queryStart($step)),
+            sprintf("        ->where('%s', \$subjectId)", (string) $step->foreignKey),
+            sprintf('        ->limit(%d)', self::CHUNK),
+            '        ->update([',
             ...$pairs,
-            '    ]);',
+            '        ]);',
+            '} while ($affected > 0);',
         ];
     }
 
@@ -163,17 +180,24 @@ final class HandlerGenerator
     private function deleteLines(HandlerStep $step): array
     {
         if ($step->foreignKey === null) {
-            // The subject's own row. whereKey() is Eloquent-only, so a table
-            // with no model has to name its key column explicitly.
+            // The subject's own row: exactly one, so nothing to chunk.
+            // whereKey() is Eloquent-only, so a table with no model has to name
+            // its key column explicitly.
             return [$step->modelClass !== null
                 ? sprintf('%s->whereKey($subjectId)->delete();', $this->queryStart($step))
                 : sprintf('%s->where(\'id\', $subjectId)->delete();', $this->queryStart($step))];
         }
 
+        // One subject can own millions of dependent rows. Deleting them in a
+        // single statement means one enormous transaction: lock contention,
+        // replication lag, and a timeout that rolls back twenty minutes of work.
         return [
-            $this->queryStart($step),
-            sprintf("    ->where('%s', \$subjectId)", $step->foreignKey),
-            '    ->delete();',
+            'do {',
+            sprintf('    $deleted = %s', $this->queryStart($step)),
+            sprintf("        ->where('%s', \$subjectId)", $step->foreignKey),
+            sprintf('        ->limit(%d)', self::CHUNK),
+            '        ->delete();',
+            '} while ($deleted > 0);',
         ];
     }
 

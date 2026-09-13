@@ -90,6 +90,44 @@ final class HandlerGeneratorTest extends TestCase
     }
 
     #[Test]
+    public function deletes_are_chunked(): void
+    {
+        // One subject can own millions of dependent rows. A single statement
+        // over all of them is one transaction that locks, lags and times out.
+        $this->assertMatchesRegularExpression(
+            '/do \{.*->limit\(1000\).*->delete\(\);.*\} while \(\$deleted > 0\);/s',
+            $this->generate(),
+        );
+    }
+
+    #[Test]
+    public function anonymisation_is_chunked_and_says_why_it_terminates(): void
+    {
+        $code = $this->generate();
+
+        $this->assertStringContainsString('->limit(1000)', $code);
+        $this->assertStringContainsString('} while ($affected > 0);', $code);
+        $this->assertStringContainsString('is among the columns being nulled', $code);
+    }
+
+    #[Test]
+    public function the_anonymise_loop_always_nulls_the_column_it_filters_on(): void
+    {
+        $code = $this->generate();
+
+        // Without this the generated loop never terminates.
+        $this->assertStringContainsString("->where('user_id', \$subjectId)", $code);
+        $this->assertStringContainsString("'user_id' => null,", $code);
+    }
+
+    #[Test]
+    public function the_subject_row_is_not_chunked(): void
+    {
+        // Exactly one row, so a loop would be noise.
+        $this->assertStringContainsString('whereKey($subjectId)->delete();', $this->generate());
+    }
+
+    #[Test]
     public function anonymise_writes_the_policys_replacement_values(): void
     {
         $code = $this->generate();
