@@ -57,6 +57,9 @@ far more slowly, a newer package should still read an older manifest.
   `DeletionCompleted`, `DeletionFailed`) so an application can log or mirror the
   erasure lifecycle with its own machinery.
 - `policy_fingerprint` recorded against every erasure.
+- Masking the subject in place: the root row is updated by its own key, written
+  with the placeholder the policy declares, and verified by asking whether
+  anything identifying survived rather than whether the row is gone.
 
 ### Not built yet
 

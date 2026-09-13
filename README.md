@@ -413,6 +413,49 @@ The rest of the behaviour:
 
 Use `--print` to see it without writing, `--class` and `--namespace` to place it.
 
+## Masking instead of deleting
+
+Plenty of applications keep the subject's row so foreign keys and history stay
+intact, and scrub the person out of it. Anonymise the subject itself:
+
+```php
+$this->anonymize(User::class, [
+    'name' => 'Deleted user',
+    'email' => 'deleted@example.invalid',
+    'password' => '',
+]);
+```
+
+**Mask to placeholders, not to null.** On most subject tables the identifying
+columns are `NOT NULL`, so an update to null fails at erasure time. If you try,
+`privacy:make-handler` says so before you ship it:
+
+> Anonymising sets these to null, but the schema declares them NOT NULL, so the
+> erasure will fail: users.email, users.name. Make the columns nullable, or
+> delete the rows instead of anonymising them.
+
+Three things behave differently for the subject's own row:
+
+| | |
+|---|---|
+| It is found by its own key | not by a foreign key it does not have |
+| The update is not chunked | one row, and the key must survive, so a loop would never end |
+| Verification asks a different question | not "is the row gone" but "did anything identifying survive" |
+
+That last one matters. A masked subject that still held its old email would pass
+an absence check, since the row is meant to be there. Verification compares each
+masked column against the value the policy declared:
+
+```
+users where id = 1, masked    PASS
+users where id = 1, masked    FAIL    data still present
+```
+
+The second line is a real run after putting the original email back.
+
+If your email column is unique, give each erased subject a distinct placeholder,
+or the second erasure collides with the first.
+
 ## Self-service erasure: suspend, then delete
 
 There is no undo. So a deletion request does not erase anything. It **stops
