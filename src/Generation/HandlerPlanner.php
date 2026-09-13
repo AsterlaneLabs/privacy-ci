@@ -228,7 +228,11 @@ final class HandlerPlanner
                 continue;
             }
 
-            $out[$this->split($location->path)[1]] = null;
+            $column = $this->split($location->path)[1];
+
+            // The policy's declared value, which is often a placeholder rather
+            // than null because identifying columns are usually NOT NULL.
+            $out[$column] = $location->replacements[$column] ?? null;
         }
 
         // The foreign key is what links the row to the person; nulling it is the
