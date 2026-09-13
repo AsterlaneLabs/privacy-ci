@@ -27,6 +27,7 @@ final readonly class HandlerStep
         public array $notes = [],
         public bool $actionable = true,
         public ?\PrivacyCI\Manifest\LocationKind $kind = null,
+        public bool $isSubjectRoot = false,
     ) {
     }
 

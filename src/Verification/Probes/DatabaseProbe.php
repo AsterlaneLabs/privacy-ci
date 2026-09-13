@@ -32,11 +32,22 @@ final class DatabaseProbe implements Probe
 
         $connection = $address->store === 'primary' ? null : $address->store;
 
+        $query = $this->db->connection($connection)->table($table)->where($column, $value);
+
+        // A masked row is meant to survive. What must not survive is a value in
+        // any of the columns the policy said to empty.
+        if (($masked = $address->locator['masked'] ?? null) !== null) {
+            $columns = array_filter(explode(',', $masked));
+
+            $query->where(static function ($q) use ($columns): void {
+                foreach ($columns as $c) {
+                    $q->orWhereNotNull($c);
+                }
+            });
+        }
+
         // A missing table would throw, which the verifier records as unchecked.
         // That is the right outcome: we did not establish absence, we failed to look.
-        return $this->db->connection($connection)
-            ->table($table)
-            ->where($column, $value)
-            ->exists();
+        return $query->exists();
     }
 }

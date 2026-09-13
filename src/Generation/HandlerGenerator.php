@@ -152,11 +152,19 @@ final class HandlerGenerator
     /** @return list<string> */
     private function anonymizeLines(HandlerStep $step): array
     {
-        $pairs = [];
-
-        foreach ($step->replacements as $column => $value) {
-            $pairs[] = sprintf("            '%s' => %s,", $column, $this->literal($value));
+        // The subject's own row: exactly one, and the key it is found by is not
+        // among the columns being nulled, so a loop would never end.
+        if ($step->isSubjectRoot) {
+            return [
+                $this->queryStart($step),
+                sprintf("    ->where('%s', \$subjectId)", (string) $step->foreignKey),
+                '    ->update([',
+                ...$this->pairs($step, 8),
+                '    ]);',
+            ];
         }
+
+        $pairs = $this->pairs($step, 12);
 
         // Chunked for the same reason deletes are: one subject can own millions
         // of rows, and a single UPDATE over all of them is one very long
@@ -176,16 +184,32 @@ final class HandlerGenerator
         ];
     }
 
+    /**
+     * Replacement lines at a given indent, since the chunked form nests deeper.
+     *
+     * @return list<string>
+     */
+    private function pairs(HandlerStep $step, int $indent): array
+    {
+        $lines = [];
+
+        foreach ($step->replacements as $column => $value) {
+            $lines[] = str_repeat(' ', $indent).sprintf("'%s' => %s,", $column, $this->literal($value));
+        }
+
+        return $lines;
+    }
+
     /** @return list<string> */
     private function deleteLines(HandlerStep $step): array
     {
-        if ($step->foreignKey === null) {
+        if ($step->isSubjectRoot || $step->foreignKey === null) {
             // The subject's own row: exactly one, so nothing to chunk.
             // whereKey() is Eloquent-only, so a table with no model has to name
             // its key column explicitly.
             return [$step->modelClass !== null
                 ? sprintf('%s->whereKey($subjectId)->delete();', $this->queryStart($step))
-                : sprintf('%s->where(\'id\', $subjectId)->delete();', $this->queryStart($step))];
+                : sprintf("%s->where('%s', \$subjectId)->delete();", $this->queryStart($step), $step->foreignKey ?? 'id')];
         }
 
         // One subject can own millions of dependent rows. Deleting them in a

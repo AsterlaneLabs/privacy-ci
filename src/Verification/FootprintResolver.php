@@ -83,6 +83,27 @@ final class FootprintResolver
             );
         }
 
+        // Anonymising the subject's own row keeps it and empties its columns,
+        // so absence is the wrong question. Ask whether anything identifying
+        // survived instead.
+        $masked = $isRoot ? $this->anonymisedColumns($locations) : [];
+
+        if ($masked !== []) {
+            return new Address(
+                locationId: $locations[0]->id,
+                kind: LocationKind::DatabaseColumn,
+                store: $locations[0]->store,
+                describe: sprintf('%s where %s = %s, masked', $table, $column, $subjectId),
+                expectation: Expectation::Masked,
+                locator: [
+                    'table' => $table,
+                    'column' => $column,
+                    'value' => $subjectId,
+                    'masked' => implode(',', $masked),
+                ],
+            );
+        }
+
         // DELETE and ANONYMIZE converge on the same assertion: after either, no
         // row should still match the subject's id. Anonymising nulls the link,
         // which is exactly what "no longer matches" means.
@@ -124,6 +145,27 @@ final class FootprintResolver
             locator: ['key' => $resolved],
             reason: $retained ? $location->reason : null,
         );
+    }
+
+    /**
+     * Columns the policy anonymises, which is what a masked row is checked on.
+     *
+     * @param  list<Location>  $locations
+     * @return list<string>
+     */
+    private function anonymisedColumns(array $locations): array
+    {
+        $columns = [];
+
+        foreach ($locations as $location) {
+            if ($location->classification === Classification::Anonymize) {
+                $columns[] = $this->column($location->path);
+            }
+        }
+
+        sort($columns);
+
+        return array_values(array_unique($columns));
     }
 
     /** @param list<Location> $locations */

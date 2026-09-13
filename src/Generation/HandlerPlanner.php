@@ -60,7 +60,14 @@ final class HandlerPlanner
         }
 
         foreach ($byTable as $table => $locations) {
-            $step = $this->tableStep($table, $locations, $rootTable, $tableDepth, $models);
+            $step = $this->tableStep(
+                $table,
+                $locations,
+                $rootTable,
+                $tableDepth,
+                $models,
+                $subject->rootColumn(),
+            );
 
             if ($step !== null) {
                 $steps[] = $step;
@@ -88,6 +95,7 @@ final class HandlerPlanner
         string $rootTable,
         array $tableDepth,
         ModelMap $models,
+        string $subjectColumn = 'id',
     ): ?HandlerStep {
         $classification = $this->dominant($locations);
 
@@ -99,7 +107,9 @@ final class HandlerPlanner
         $isRoot = $table === $rootTable;
         $depth = $isRoot ? 0 : ($tableDepth[$table] ?? 1);
 
-        $foreignKey = $isRoot ? null : $this->foreignKey($locations);
+        // The subject's own row has no foreign key to itself; it is found by its
+        // own key. Without this an anonymised root generates where('', $id).
+        $foreignKey = $isRoot ? $subjectColumn : $this->foreignKey($locations);
         $notes = [];
         $actionable = true;
 
@@ -113,7 +123,9 @@ final class HandlerPlanner
         $replacements = [];
 
         if ($classification === Classification::Anonymize) {
-            $replacements = $this->replacements($locations, $foreignKey);
+            // On the root the key identifies the row and must survive, so it is
+            // never nulled. Elsewhere nulling the link is the point.
+            $replacements = $this->replacements($locations, $isRoot ? null : $foreignKey);
 
             if ($replacements === []) {
                 $notes[] = 'policy named no replacement values';
@@ -135,6 +147,7 @@ final class HandlerPlanner
             table: $table,
             foreignKey: $foreignKey,
             replacements: $replacements,
+            isSubjectRoot: $isRoot,
             handler: $classification === Classification::Custom ? $this->handlerFor($locations) : null,
             notes: $notes,
             actionable: $actionable,

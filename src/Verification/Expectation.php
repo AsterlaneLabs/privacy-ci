@@ -14,6 +14,15 @@ enum Expectation: string
     case Retained = 'retained';
 
     /**
+     * The row stays, the person does not.
+     *
+     * Masking the subject in place keeps the row for referential integrity and
+     * scrubs the identifying columns. Checking for absence here would report a
+     * failure for doing exactly what the policy asked.
+     */
+    case Masked = 'masked';
+
+    /**
      * We know personal data is here and cannot address it from the subject's id
      * alone, free-text columns, tables with no foreign key.
      *
@@ -21,4 +30,10 @@ enum Expectation: string
      * what it never looked at is worse than no check at all.
      */
     case Unverifiable = 'unverifiable';
+
+    /** Whether presence of the row itself counts as a failure. */
+    public function expectsAbsence(): bool
+    {
+        return $this === self::Absent;
+    }
 }
