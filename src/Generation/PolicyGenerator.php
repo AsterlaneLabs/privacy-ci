@@ -170,7 +170,16 @@ final class PolicyGenerator
         array $locations,
     ): array {
         if ($isRoot) {
-            return ['// $this->delete('.$target.');'];
+            // Both, because the choice is real and neither is obviously right.
+            // Deleting the row forces every foreign key pointing at it to be
+            // nullable or cascading; masking keeps orders, comments and audit
+            // rows attributable to somebody, just not to a person.
+            return [
+                '// $this->delete('.$target.');',
+                '// $this->anonymize('.$target.', ['.$this->maskSuggestion($locations).']);',
+                '//   Masking keeps the row so foreign keys survive. Use placeholders,',
+                '//   not null: identifying columns are usually NOT NULL.',
+            ];
         }
 
         if ($foreignKey === null) {
@@ -205,6 +214,48 @@ final class PolicyGenerator
             '// $this->anonymize('.$target.', ['.$pairs.']);',
             '// $this->delete('.$target.');',
         ];
+    }
+
+    /**
+     * A starting set of placeholders for masking the subject.
+     *
+     * Uses the columns actually discovered on the root, with values that are
+     * obviously not real, so an unedited placeholder is visible in the data
+     * rather than looking like somebody's name.
+     *
+     * @param  list<Location>  $locations
+     */
+    private function maskSuggestion(array $locations): string
+    {
+        $pairs = [];
+
+        foreach ($locations as $location) {
+            $column = $this->column($location->path);
+
+            if ($location->linkage === Linkage::SubjectRoot) {
+                continue;   // the key identifies the row and has to survive
+            }
+
+            $pairs[$column] = match (true) {
+                str_contains($column, 'email') => "'deleted@example.invalid'",
+                str_contains($column, 'name') => "'Deleted user'",
+                str_contains($column, 'phone') => "''",
+                default => "''",
+            };
+        }
+
+        if ($pairs === []) {
+            return '';
+        }
+
+        ksort($pairs);
+        $pairs = array_slice($pairs, 0, 6, true);
+
+        return implode(', ', array_map(
+            static fn (string $c, string $v): string => "'{$c}' => {$v}",
+            array_keys($pairs),
+            $pairs,
+        ));
     }
 
     private function storeBlock(Location $location): string

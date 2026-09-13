@@ -84,6 +84,48 @@ final class PolicyGeneratorTest extends TestCase
     }
 
     #[Test]
+    public function the_subject_root_offers_both_deleting_and_masking(): void
+    {
+        $code = $this->generate();
+
+        // Neither is obviously right. Deleting forces every foreign key pointing
+        // at the row to be nullable or cascading; masking keeps them valid.
+        $this->assertStringContainsString('// $this->delete(User::class);', $code);
+        $this->assertStringContainsString('// $this->anonymize(User::class, [', $code);
+    }
+
+    #[Test]
+    public function the_mask_suggestion_uses_the_columns_that_were_found(): void
+    {
+        $code = $this->generate();
+
+        $this->assertStringContainsString("'email' => 'deleted@example.invalid'", $code);
+        $this->assertStringContainsString("'name' => 'Deleted user'", $code);
+    }
+
+    #[Test]
+    public function the_mask_suggestion_never_touches_the_subject_key(): void
+    {
+        // Nulling the key would orphan every row that points at it.
+        $line = '';
+
+        foreach (explode("\n", $this->generate()) as $l) {
+            if (str_contains($l, 'anonymize(User::class')) {
+                $line = $l;
+            }
+        }
+
+        $this->assertNotSame('', $line);
+        $this->assertStringNotContainsString("'id' =>", $line);
+    }
+
+    #[Test]
+    public function the_mask_suggestion_says_why_placeholders_not_null(): void
+    {
+        $this->assertStringContainsString('not null: identifying columns are usually NOT NULL', $this->generate());
+    }
+
+    #[Test]
     public function a_table_with_no_link_offers_no_rule_that_could_not_work(): void
     {
         $code = $this->generate();

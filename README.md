@@ -185,6 +185,9 @@ final class UserPrivacyPolicy extends PrivacyPolicy
         //    name                          0.65  possibly a personal name
 
         // $this->delete(User::class);
+        // $this->anonymize(User::class, ['email' => 'deleted@example.invalid', 'name' => 'Deleted user']);
+        //   Masking keeps the row so foreign keys survive. Use placeholders,
+        //   not null: identifying columns are usually NOT NULL.
 
         // ── comments ────────────────────────────────── linked by user_id
         //    author_ip                     0.99  IP address
@@ -413,10 +416,28 @@ The rest of the behaviour:
 
 Use `--print` to see it without writing, `--class` and `--namespace` to place it.
 
-## Masking instead of deleting
+## Deleting or masking the subject
 
-Plenty of applications keep the subject's row so foreign keys and history stay
-intact, and scrub the person out of it. Anonymise the subject itself:
+Neither is a default. Every location starts unclassified and every scaffolded
+rule arrives commented out, so the choice is made once, in your policy, and
+reviewed like any other change.
+
+For the subject's own row `privacy:make-policy` offers both, because neither is
+obviously right:
+
+```php
+// $this->delete(User::class);
+// $this->anonymize(User::class, ['email' => 'deleted@example.invalid', 'name' => 'Deleted user']);
+```
+
+**Deleting** forces every foreign key pointing at the row to be nullable or
+cascading, or the delete is refused. **Masking** keeps orders, comments and audit
+rows attributable to somebody, just not to a person.
+
+Mixing is fine and usual: mask the subject, delete the sessions, anonymise the
+comments, keep the orders.
+
+### Masking
 
 ```php
 $this->anonymize(User::class, [
