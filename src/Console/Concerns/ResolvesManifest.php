@@ -59,6 +59,7 @@ trait ResolvesManifest
             modelPaths: $modelPaths,
             sourcePaths: $this->existingPaths('privacy.discovery.source_paths'),
             models: $models,
+            onIssue: fn (string $message) => $this->components->warn($message),
         );
 
         return $this->applyPolicies($manifest, $modelPaths);

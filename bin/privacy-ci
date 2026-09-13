@@ -95,6 +95,9 @@ $manifest = (new Discoverer(minConfidence: (float) ($options['min-confidence'] ?
     ),
     modelPaths: $modelPaths,
     sourcePaths: $sourcePaths,
+    onIssue: static function (string $message): void {
+        fwrite(STDERR, "\nWARNING: {$message}\n");
+    },
 );
 
 $policyPath = (string) ($options['policies'] ?? $root.'/app/Privacy');

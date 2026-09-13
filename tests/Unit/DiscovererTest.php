@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use PrivacyCI\Discovery\Discoverer;
 use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Manifest;
+use PrivacyCI\Manifest\Subject;
 
 final class DiscovererTest extends TestCase
 {
@@ -272,6 +273,56 @@ final class DiscovererTest extends TestCase
             $manifest->location('db:primary:audit_entries.actor_id'),
             'supplying models should work without modelPaths',
         );
+    }
+
+    #[Test]
+    public function a_missing_subject_root_table_is_reported(): void
+    {
+        $issues = [];
+
+        (new Discoverer)->discover(
+            project: 'fixture/app',
+            migrationPaths: [__DIR__.'/../fixtures/migrations'],
+            subject: new Subject('user', 'nonexistent.id'),
+            onIssue: function (string $m) use (&$issues): void { $issues[] = $m; },
+        );
+
+        // Nothing links to a table that was never found, so the map collapses to
+        // a few name matches and looks like a clean application.
+        $this->assertCount(1, $issues);
+        $this->assertStringContainsString('not in the discovered schema', $issues[0]);
+        $this->assertStringContainsString('users', $issues[0], 'should list what was found');
+    }
+
+    #[Test]
+    public function a_missing_subject_root_column_is_reported(): void
+    {
+        $issues = [];
+
+        (new Discoverer)->discover(
+            project: 'fixture/app',
+            migrationPaths: [__DIR__.'/../fixtures/migrations'],
+            subject: new Subject('user', 'users.user_id'),
+            onIssue: function (string $m) use (&$issues): void { $issues[] = $m; },
+        );
+
+        $this->assertCount(1, $issues);
+        $this->assertStringContainsString('does not exist', $issues[0]);
+        $this->assertStringContainsString('email', $issues[0], 'should list the real columns');
+    }
+
+    #[Test]
+    public function a_correct_subject_reports_nothing(): void
+    {
+        $issues = [];
+
+        $this->assertNotNull((new Discoverer)->discover(
+            project: 'fixture/app',
+            migrationPaths: [__DIR__.'/../fixtures/migrations'],
+            onIssue: function (string $m) use (&$issues): void { $issues[] = $m; },
+        ));
+
+        $this->assertSame([], $issues);
     }
 
     #[Test]

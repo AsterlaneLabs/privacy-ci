@@ -11,6 +11,7 @@ use PrivacyCI\Discovery\Scanners\IntegrationScanner;
 use PrivacyCI\Discovery\Scanners\MigrationScanner;
 use PrivacyCI\Discovery\Scanners\ModelScanner;
 use PrivacyCI\Discovery\Scanners\StaticFlowScanner;
+use PrivacyCI\Discovery\Schema\SchemaMap;
 use PrivacyCI\Manifest\Classification;
 use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
@@ -45,6 +46,8 @@ final class Discoverer
      * @param  list<string>  $sourcePaths  Application code to scan for data flows (Stage B).
      * @param  ModelMap|null $models       Pre-scanned models. Supplying them avoids a second
      *                                     scan and lets the caller report what was found.
+     * @param  (callable(string): void)|null $onIssue  Receives anything that makes the
+     *                                     result untrustworthy rather than merely empty.
      */
     public function discover(
         string $project,
@@ -57,8 +60,11 @@ final class Discoverer
         array $modelPaths = [],
         array $sourcePaths = [],
         ?ModelMap $models = null,
+        ?callable $onIssue = null,
     ): Manifest {
         $schema = $this->migrations->scan($migrationPaths);
+
+        $this->checkSubjectRoot($schema, $subject, $onIssue);
         $models ??= $modelPaths === [] ? new ModelMap : $this->models->scan($modelPaths);
 
         $graph = new ForeignKeyGraph($schema);
@@ -122,6 +128,54 @@ final class Discoverer
             commit: $commit,
             scannedAt: gmdate('Y-m-d\TH:i:s\Z'),
         );
+    }
+
+    /**
+     * A subject root that does not exist makes the whole map meaningless.
+     *
+     * Nothing links to a table that was never found, so the graph is empty and
+     * the report shrinks to a handful of name matches. That looks like a clean
+     * application rather than a misconfigured scan, which is the worse of the
+     * two failures.
+     *
+     * @param  (callable(string): void)|null  $onIssue
+     */
+    private function checkSubjectRoot(SchemaMap $schema, Subject $subject, ?callable $onIssue): void
+    {
+        if ($onIssue === null || $schema->isEmpty()) {
+            return;
+        }
+
+        $table = $subject->rootTable();
+
+        if (! $schema->hasTable($table)) {
+            $names = array_keys($schema->tables());
+            sort($names);
+
+            $onIssue(sprintf(
+                'Subject root table "%s" is not in the discovered schema, so nothing can link '
+                .'to it and the map is incomplete. Set privacy.subjects to a table that exists. '
+                .'Found %d table(s): %s%s',
+                $table,
+                count($names),
+                implode(', ', array_slice($names, 0, 8)),
+                count($names) > 8 ? ', ...' : '',
+            ));
+
+            return;
+        }
+
+        if (! $schema->table($table)->hasColumn($subject->rootColumn())) {
+            $columns = array_keys($schema->table($table)->columns());
+
+            $onIssue(sprintf(
+                'Subject root column "%s.%s" does not exist. Columns on %s: %s',
+                $table,
+                $subject->rootColumn(),
+                $table,
+                implode(', ', array_slice($columns, 0, 10)),
+            ));
+        }
     }
 
     /**
