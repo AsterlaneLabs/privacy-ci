@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PrivacyCI\Policy;
 
 use PrivacyCI\Discovery\Models\ModelMap;
+use PrivacyCI\Manifest\Classification;
 use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
 use PrivacyCI\Manifest\LocationKind;
@@ -41,7 +42,7 @@ final class PolicyCompiler
             $rule = $this->bestRuleFor($location, $rules);
 
             if ($rule === null) {
-                $classified[] = $location;
+                $classified[] = $this->keyOfAMaskedSubject($location, $rules) ?? $location;
 
                 continue;
             }
@@ -99,6 +100,41 @@ final class PolicyCompiler
         }
 
         return $best;
+    }
+
+    /**
+     * The subject's key, on a subject that is masked rather than deleted.
+     *
+     * Masking names the columns to scrub, and the key is never one of them: it
+     * identifies the row that has to survive. Left alone it stays unclassified
+     * and fails CI forever, which would make every masked subject need a
+     * retain() rule for a column nobody was ever going to touch.
+     *
+     * @param  list<Rule>  $rules
+     */
+    private function keyOfAMaskedSubject(Location $location, array $rules): ?Location
+    {
+        if ($location->linkage !== Linkage::SubjectRoot) {
+            return null;
+        }
+
+        [$table] = $this->splitPath($location->path);
+
+        foreach ($rules as $rule) {
+            if ($rule->kind !== LocationKind::DatabaseColumn
+                || $rule->classification !== Classification::Anonymize
+                || $this->models->resolveTable($rule->target) !== $table) {
+                continue;
+            }
+
+            return $location->withClassification(
+                Classification::Retain,
+                $rule->declaredAt,
+                'subject key, kept so the masked row stays addressable',
+            );
+        }
+
+        return null;
     }
 
     /**

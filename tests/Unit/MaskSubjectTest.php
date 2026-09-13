@@ -88,6 +88,45 @@ final class MaskSubjectTest extends TestCase
     }
 
     #[Test]
+    public function masking_the_subject_does_not_leave_its_key_failing_ci(): void
+    {
+        $key = $this->manifest()->location('db:primary:users.id');
+
+        // The key is never among the columns to scrub, because it identifies
+        // the row that has to survive. Left unclassified it would fail every
+        // build forever and need a retain() rule nobody would think to write.
+        $this->assertNotNull($key);
+        $this->assertTrue($key->classification->isResolved());
+        $this->assertFalse($key->blocksBuild());
+        $this->assertStringContainsString('subject key', (string) $key->reason);
+    }
+
+    #[Test]
+    public function deleting_the_subject_still_classifies_its_key_normally(): void
+    {
+        $models = (new ModelScanner)->scan([__DIR__.'/../fixtures/Models']);
+
+        $manifest = (new Discoverer)->discover(
+            project: 'fixture/app',
+            migrationPaths: [__DIR__.'/../fixtures/migrations'],
+            subject: $this->subject,
+            modelPaths: [__DIR__.'/../fixtures/Models'],
+        );
+
+        $deleting = new class extends PrivacyPolicy
+        {
+            public function configure(): void
+            {
+                $this->delete('users');
+            }
+        };
+
+        $key = (new PolicyCompiler($models))->apply($manifest, $deleting)->location('db:primary:users.id');
+
+        $this->assertSame(\PrivacyCI\Manifest\Classification::Delete, $key?->classification);
+    }
+
+    #[Test]
     public function the_root_row_is_found_by_its_own_key(): void
     {
         // Without this the generated code filtered on a foreign key the root

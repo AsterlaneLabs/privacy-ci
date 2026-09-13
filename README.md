@@ -150,17 +150,69 @@ $this->ignore(FeatureFlag::class)->reason('internal flag, no subject link');
 An unexplained suppression is indistinguishable from an oversight when someone
 reads the diff two years later.
 
-### GitHub Actions
+### Running it anywhere
 
-```yaml
-- run: php artisan privacy:check
+The gate is one command and an exit code, so any runner works. GitLab, Jenkins,
+Buildkite and a git pre-push hook all behave the same way.
+
+```bash
+./vendor/bin/privacy-ci --path=. --check --no-ansi     # 0 = pass, 1 = fail
 ```
 
-Or with no Laravel boot and no database at all:
+Prefer the binary over `php artisan privacy:check` in CI. Artisan has to boot
+the application, so it wants an `.env` and an `APP_KEY`; the binary reads the
+checkout and nothing else. Neither needs a database.
+
+A complete GitHub Actions workflow:
 
 ```yaml
-- run: ./vendor/bin/privacy-ci --path=. --check --no-ansi
+name: privacy
+
+on: pull_request
+
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Privacy check
+        run: ./vendor/bin/privacy-ci --path=. --check --no-ansi
 ```
+
+No database service, no `.env`, no secrets: discovery reads migrations, models,
+config and `composer.lock` from the checkout. Verified from a clean clone with
+neither file present.
+
+While a team is adopting the check, swap the last step for one that reports
+without blocking anyone:
+
+```yaml
+      - name: Privacy check (reporting only)
+        run: ./vendor/bin/privacy-ci --path=. --check --no-ansi || true
+```
+
+`privacy-baseline.json` has to be committed. Without it every run reports the
+whole of your existing debt and fails from the first day.
+
+### What it does not do
+
+It does not comment on the pull request. You get a red check and the reason in
+the job log. Inline comments need a GitHub App holding a token, which is a
+hosted piece rather than something this package can do from inside a job.
 
 ## Scaffold the policy
 
