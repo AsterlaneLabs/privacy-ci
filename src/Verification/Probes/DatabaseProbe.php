@@ -37,11 +37,21 @@ final class DatabaseProbe implements Probe
         // A masked row is meant to survive. What must not survive is a value in
         // any of the columns the policy said to empty.
         if (($masked = $address->locator['masked'] ?? null) !== null) {
-            $columns = array_filter(explode(',', $masked));
+            /** @var array<string, mixed> $expected */
+            $expected = json_decode((string) $masked, true) ?: [];
 
-            $query->where(static function ($q) use ($columns): void {
-                foreach ($columns as $c) {
-                    $q->orWhereNotNull($c);
+            $query->where(static function ($q) use ($expected): void {
+                foreach ($expected as $column => $value) {
+                    if ($value === null) {
+                        $q->orWhereNotNull($column);
+
+                        continue;
+                    }
+
+                    // A column holding anything other than the declared
+                    // placeholder still holds the person. NULL compares to
+                    // nothing in SQL, so it is asked for separately.
+                    $q->orWhere($column, '!=', $value)->orWhereNull($column);
                 }
             });
         }

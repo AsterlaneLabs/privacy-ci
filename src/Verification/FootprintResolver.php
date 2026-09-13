@@ -86,7 +86,7 @@ final class FootprintResolver
         // Anonymising the subject's own row keeps it and empties its columns,
         // so absence is the wrong question. Ask whether anything identifying
         // survived instead.
-        $masked = $isRoot ? $this->anonymisedColumns($locations) : [];
+        $masked = $isRoot ? $this->maskedColumns($locations) : [];
 
         if ($masked !== []) {
             return new Address(
@@ -99,7 +99,7 @@ final class FootprintResolver
                     'table' => $table,
                     'column' => $column,
                     'value' => $subjectId,
-                    'masked' => implode(',', $masked),
+                    'masked' => (string) json_encode($masked),
                 ],
             );
         }
@@ -148,24 +148,31 @@ final class FootprintResolver
     }
 
     /**
-     * Columns the policy anonymises, which is what a masked row is checked on.
+     * Column to expected value, for the columns the policy anonymises.
+     *
+     * Masking to null fails on most subject tables, where the identifying
+     * columns are NOT NULL, so real policies mask to a placeholder. Checking
+     * only for null-ness would call those a failure.
      *
      * @param  list<Location>  $locations
-     * @return list<string>
+     * @return array<string, mixed>
      */
-    private function anonymisedColumns(array $locations): array
+    private function maskedColumns(array $locations): array
     {
         $columns = [];
 
         foreach ($locations as $location) {
-            if ($location->classification === Classification::Anonymize) {
-                $columns[] = $this->column($location->path);
+            if ($location->classification !== Classification::Anonymize) {
+                continue;
             }
+
+            $column = $this->column($location->path);
+            $columns[$column] = $location->replacements[$column] ?? null;
         }
 
-        sort($columns);
+        ksort($columns);
 
-        return array_values(array_unique($columns));
+        return $columns;
     }
 
     /** @param list<Location> $locations */

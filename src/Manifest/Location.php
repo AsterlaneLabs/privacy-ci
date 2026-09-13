@@ -25,6 +25,15 @@ final readonly class Location
         public ?string $policySource = null,
         public array $evidence = [],
         public ?string $reason = null,
+        /**
+         * What an anonymised column should hold afterwards.
+         *
+         * Declared policy, never subject data, so it can live in a manifest that
+         * promises to carry no values.
+         *
+         * @var array<string, mixed>
+         */
+        public array $replacements = [],
     ) {
     }
 
@@ -48,10 +57,12 @@ final readonly class Location
         return ! $this->classification->isResolved() && $this->linkage->isDeterministic();
     }
 
+    /** @param array<string, mixed> $replacements */
     public function withClassification(
         Classification $classification,
         ?string $policySource = null,
         ?string $reason = null,
+        array $replacements = [],
     ): self {
         return new self(
             $this->id,
@@ -65,6 +76,7 @@ final readonly class Location
             $policySource,
             $this->evidence,
             $reason,
+            $replacements,
         );
     }
 
@@ -82,6 +94,7 @@ final readonly class Location
             'classification' => $this->classification->value,
             'policy_source' => $this->policySource,
             'reason' => $this->reason,
+            'replacements' => $this->replacements,
             'evidence' => $this->evidence,
         ], static fn (mixed $v): bool => $v !== null && $v !== []);
     }
@@ -101,6 +114,7 @@ final readonly class Location
             isset($data['policy_source']) ? (string) $data['policy_source'] : null,
             array_values((array) ($data['evidence'] ?? [])),
             isset($data['reason']) ? (string) $data['reason'] : null,
+            (array) ($data['replacements'] ?? []),
         );
     }
 }

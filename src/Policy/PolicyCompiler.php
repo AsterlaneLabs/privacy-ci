@@ -47,7 +47,12 @@ final class PolicyCompiler
             }
 
             $classified[] = $rule->kind === LocationKind::DatabaseColumn
-                ? $location->withClassification($rule->classification, $rule->declaredAt, $rule->reasonText())
+                ? $location->withClassification(
+                    $rule->classification,
+                    $rule->declaredAt,
+                    $rule->reasonText(),
+                    $this->replacementsFor($location, $rule),
+                )
                 : $this->claim($location, $rule);
         }
 
@@ -94,6 +99,24 @@ final class PolicyCompiler
         }
 
         return $best;
+    }
+
+    /**
+     * The declared post-state for this column, if the rule names one.
+     *
+     * @return array<string, mixed>
+     */
+    private function replacementsFor(Location $location, Rule $rule): array
+    {
+        if ($rule->replacements === []) {
+            return [];
+        }
+
+        $column = $this->splitPath($location->path)[1];
+
+        return array_key_exists($column, $rule->replacements)
+            ? [$column => $rule->replacements[$column]]
+            : [];
     }
 
     /**
