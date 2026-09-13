@@ -736,6 +736,49 @@ It carries structure and identifiers, **never values**. Serialisation is
 deterministic, so two scans of unchanged code produce byte-identical output,
 without which diffing would be meaningless.
 
+## What ends up in the audit trail
+
+One row per erasure, in `privacy_deletion_requests`, carrying the whole story:
+
+```
+subject_type       user
+subject_id         1
+status             completed
+requested_at       2026-09-13 04:08:40      requested_via  account settings
+suspended_at       2026-09-13 04:08:40      resolved_at    2026-09-13 04:08:41
+policy_fingerprint sha256:6f9fb576...       attempts       1
+footprint          10 addresses captured before deletion
+verification       passed=true  complete=false
+evidence hash      sha256:3c89eaaa...
+```
+
+`policy_fingerprint` hashes the rules that were in force, so the trail can
+answer which policy governed an erasure once the policy has changed. Changing a
+rule changes the hash, including a retention reason, since that is the
+justification an auditor reads.
+
+### Events, for your own logging
+
+Nothing here writes to a log channel. It announces the lifecycle instead, and
+your application decides what that means:
+
+```php
+Event::listen(DeletionRequested::class, LogPrivacyEvents::class);
+Event::listen(DeletionCompleted::class, LogPrivacyEvents::class);
+```
+
+`DeletionRequested`, `DeletionCancelled`, `DeletionCompleted` and
+`DeletionFailed` each carry the request and nothing else, and have no framework
+dependency. A listener that throws cannot undo an erasure that already happened.
+
+### What this is not
+
+The row is updated in place, so the transitions `pending -> suspended ->
+completed` overwrite one another: you get the outcome and its timestamps, not
+the sequence. Rows are not hash chained either, so a deleted row leaves no
+trace. The evidence hash proves that evidence is unmodified. It does not prove
+the set of rows is complete.
+
 ## What this is not
 
 The output is **engineering evidence, not legal certification**.

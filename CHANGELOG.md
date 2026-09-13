@@ -53,7 +53,14 @@ far more slowly, a newer package should still read an older manifest.
   exist, anonymising a `NOT NULL` column, and retaining rows that hold a foreign
   key to a row being deleted.
 
+- Lifecycle events (`DeletionRequested`, `DeletionCancelled`,
+  `DeletionCompleted`, `DeletionFailed`) so an application can log or mirror the
+  erasure lifecycle with its own machinery.
+- `policy_fingerprint` recorded against every erasure.
+
 ### Not built yet
+
+- An append-only transition history, and hash chaining across audit rows.
 
 - Synthetic-subject verification: sweeping a staging store for an identifier,
   to catch data in places the map never reached.
