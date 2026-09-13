@@ -76,7 +76,7 @@ final class MakeHandlerCommand extends Command
         if ($this->option('print')) {
             // Through the raw stream: SymfonyStyle normalises whitespace, which
             // turns generated code into something that will not parse.
-            $this->writeReport(rtrim($code));
+            $this->writeVerbatim(rtrim($code));
 
             return self::SUCCESS;
         }

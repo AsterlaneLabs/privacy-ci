@@ -37,6 +37,17 @@ trait WritesReports
             : $this->output;
     }
 
+    /**
+     * Write verbatim, with nothing added around it.
+     *
+     * Generated code is piped to a file, and a blank line before `<?php` is
+     * output, which makes declare(strict_types=1) no longer the first statement.
+     */
+    protected function writeVerbatim(string $text): void
+    {
+        $this->reportStream()->writeln($text, OutputInterface::OUTPUT_RAW);
+    }
+
     protected function writeReport(string $text): void
     {
         // Not $this->output: that is a SymfonyStyle, which trims and normalises
