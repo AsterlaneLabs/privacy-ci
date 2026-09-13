@@ -6,6 +6,7 @@ namespace PrivacyCI\Console;
 
 use Illuminate\Console\Command;
 use PrivacyCI\Console\Concerns\ResolvesManifest;
+use PrivacyCI\Console\Concerns\WritesReports;
 use PrivacyCI\Discovery\Discoverer;
 use PrivacyCI\Discovery\ForeignKeyGraph;
 use PrivacyCI\Discovery\Models\ModelMap;
@@ -28,6 +29,7 @@ use PrivacyCI\Policy\InvalidPolicy;
 final class MakeHandlerCommand extends Command
 {
     use ResolvesManifest;
+    use WritesReports;
 
     protected $signature = 'privacy:make-handler
         {--subject= : Which configured subject to trace}
@@ -72,7 +74,9 @@ final class MakeHandlerCommand extends Command
         );
 
         if ($this->option('print')) {
-            $this->output->write($code);
+            // Through the raw stream: SymfonyStyle normalises whitespace, which
+            // turns generated code into something that will not parse.
+            $this->writeReport(rtrim($code));
 
             return self::SUCCESS;
         }

@@ -6,6 +6,7 @@ namespace PrivacyCI\Console;
 
 use Illuminate\Console\Command;
 use PrivacyCI\Console\Concerns\ResolvesManifest;
+use PrivacyCI\Console\Concerns\WritesReports;
 use PrivacyCI\Discovery\Discoverer;
 use PrivacyCI\Discovery\Models\ModelMap;
 use PrivacyCI\Generation\PolicyGenerator;
@@ -21,6 +22,7 @@ use PrivacyCI\Policy\InvalidPolicy;
 final class MakePolicyCommand extends Command
 {
     use ResolvesManifest;
+    use WritesReports;
 
     protected $signature = 'privacy:make-policy
         {--subject= : Which configured subject to trace}
@@ -62,7 +64,9 @@ final class MakePolicyCommand extends Command
         );
 
         if ($this->option('print')) {
-            $this->output->write($code);
+            // Through the raw stream: SymfonyStyle normalises whitespace, which
+            // turns generated code into something that will not parse.
+            $this->writeReport(rtrim($code));
 
             return self::SUCCESS;
         }

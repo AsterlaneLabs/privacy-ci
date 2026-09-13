@@ -174,9 +174,17 @@ final class PolicyGenerator
             // Deleting the row forces every foreign key pointing at it to be
             // nullable or cascading; masking keeps orders, comments and audit
             // rows attributable to somebody, just not to a person.
+            $mask = $this->maskSuggestion($locations);
+
+            if ($mask === '') {
+                // Nothing here to put a placeholder in, so offering to mask
+                // would be offering an empty array.
+                return ['// $this->delete('.$target.');'];
+            }
+
             return [
                 '// $this->delete('.$target.');',
-                '// $this->anonymize('.$target.', ['.$this->maskSuggestion($locations).']);',
+                '// $this->anonymize('.$target.', ['.$mask.']);',
                 '//   Masking keeps the row so foreign keys survive. Use placeholders,',
                 '//   not null: identifying columns are usually NOT NULL.',
             ];
