@@ -30,6 +30,8 @@ use PrivacyCI\Lifecycle\NullSuspender;
 use PrivacyCI\Lifecycle\SubjectDeleter;
 use PrivacyCI\Lifecycle\SubjectNotifier;
 use PrivacyCI\Lifecycle\SubjectSuspender;
+use PrivacyCI\Policy\PolicyFingerprint;
+use PrivacyCI\Policy\PrivacyPolicy;
 use PrivacyCI\Verification\Verifier;
 
 final class PrivacyCIServiceProvider extends ServiceProvider
@@ -59,6 +61,8 @@ final class PrivacyCIServiceProvider extends ServiceProvider
                 $mode,
                 $mode->suspendsImmediately() ? $this->app->make(SubjectSuspender::class) : null,
                 array_values(array_map(intval(...), (array) config('privacy.lifecycle.remind_days', []))),
+                fn (object $e) => $this->app->make(Dispatcher::class)->dispatch($e),
+                fn (): ?string => $this->policyFingerprint(),
             );
         });
 
@@ -99,6 +103,33 @@ final class PrivacyCIServiceProvider extends ServiceProvider
                 ? $this->app->make($configured)
                 : new NullDeleter;
         });
+    }
+
+    /**
+     * Hash of the rules in force, resolved once per process.
+     *
+     * Recorded against every erasure so the trail can say which policy governed
+     * it. Instantiating policies is cheap; running discovery here would not be.
+     */
+    private function policyFingerprint(): ?string
+    {
+        static $cached = false;
+        static $value = null;
+
+        if ($cached) {
+            return $value;
+        }
+
+        $cached = true;
+        $policies = [];
+
+        foreach ((array) config('privacy.policies', []) as $class) {
+            if (is_string($class) && is_subclass_of($class, PrivacyPolicy::class)) {
+                $policies[] = $this->app->make($class);
+            }
+        }
+
+        return $value = $policies === [] ? null : PolicyFingerprint::of(...$policies);
     }
 
     public function boot(): void

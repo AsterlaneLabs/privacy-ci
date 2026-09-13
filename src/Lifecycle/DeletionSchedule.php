@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace PrivacyCI\Lifecycle;
 
+use PrivacyCI\Lifecycle\Events\DeletionCancelled;
+use PrivacyCI\Lifecycle\Events\DeletionCompleted;
+use PrivacyCI\Lifecycle\Events\DeletionFailed;
+use PrivacyCI\Lifecycle\Events\DeletionRequested;
+
 /**
  * The grace period, and the rules that make it trustworthy.
  *
@@ -31,6 +36,20 @@ final class DeletionSchedule
         private readonly ?SubjectSuspender $suspender = null,
         /** @var list<int> Days-before marks at which to remind the subject. */
         private readonly array $remindDays = [],
+        /**
+         * Receives lifecycle events. Kept as a callable so this class stays
+         * framework-free; the service provider hands it Laravel's dispatcher.
+         *
+         * @var (callable(object): void)|null
+         */
+        private readonly mixed $emit = null,
+        /**
+         * Returns the fingerprint of the rules currently in force, so the audit
+         * trail records which policy governed each erasure.
+         *
+         * @var (callable(): ?string)|null
+         */
+        private readonly mixed $fingerprint = null,
     ) {
         if ($this->graceDays < 0) {
             throw new \InvalidArgumentException('Grace period cannot be negative.');
@@ -138,6 +157,7 @@ final class DeletionSchedule
         }
 
         $now = $this->clock->now();
+        $policyFingerprint ??= $this->currentFingerprint();
 
         $request = new DeletionRequest(
             id: $this->newId(),
@@ -155,6 +175,8 @@ final class DeletionSchedule
         $this->store->save($request);
 
         if (! $this->mode->suspendsImmediately()) {
+            $this->fire(new DeletionRequested($request));
+
             return $request;
         }
 
@@ -174,6 +196,7 @@ final class DeletionSchedule
 
         $suspended = $request->suspended($this->clock->now());
         $this->store->save($suspended);
+        $this->fire(new DeletionRequested($suspended));
 
         return $suspended;
     }
@@ -194,6 +217,7 @@ final class DeletionSchedule
 
         $cancelled = $pending->cancelled($this->clock->now(), $reason);
         $this->store->save($cancelled);
+        $this->fire(new DeletionCancelled($cancelled));
 
         return $cancelled;
     }
@@ -224,6 +248,7 @@ final class DeletionSchedule
 
         $cancelled = $pending->cancelled($this->clock->now(), $reason);
         $this->store->save($cancelled);
+        $this->fire(new DeletionCancelled($cancelled));
 
         return $cancelled;
     }
@@ -292,16 +317,49 @@ final class DeletionSchedule
                     $claimed = $auditor->afterDelete($claimed);
                 }
 
-                $this->store->save($claimed->completed($this->clock->now()));
+                $done = $claimed->completed($this->clock->now());
+                $this->store->save($done);
+                $this->fire(new DeletionCompleted($done));
                 $completed++;
             } catch (\Throwable $e) {
-                $this->store->save($claimed->failed($this->clock->now(), $e->getMessage()));
+                $broken = $claimed->failed($this->clock->now(), $e->getMessage());
+                $this->store->save($broken);
+                $this->fire(new DeletionFailed($broken));
                 $errors[$claimed->subjectId] = $e->getMessage();
                 $failed++;
             }
         }
 
         return ['completed' => $completed, 'failed' => $failed, 'errors' => $errors];
+    }
+
+    /**
+     * A listener that throws must not undo an erasure that already happened.
+     */
+    private function fire(object $event): void
+    {
+        if ($this->emit === null) {
+            return;
+        }
+
+        try {
+            ($this->emit)($event);
+        } catch (\Throwable) {
+            // Notifying the application is not part of the guarantee.
+        }
+    }
+
+    private function currentFingerprint(): ?string
+    {
+        if ($this->fingerprint === null) {
+            return null;
+        }
+
+        try {
+            return ($this->fingerprint)();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function newId(): string
