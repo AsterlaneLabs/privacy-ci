@@ -27,7 +27,16 @@ trait WritesReports
      */
     protected function reportsAreDecorated(): bool
     {
-        return $this->reportStream()->isDecorated();
+        if ($this->reportStream()->isDecorated()) {
+            return true;
+        }
+
+        // Reports bypass the formatter, so Symfony's decision about the wrapper
+        // does not always describe the stream they land on. Fall back to asking
+        // the stream, unless the caller has explicitly said no.
+        return ! $this->option('no-ansi')
+            && \defined('STDOUT')
+            && \stream_isatty(STDOUT);
     }
 
     private function reportStream(): OutputInterface
