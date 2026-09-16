@@ -32,10 +32,6 @@ php artisan vendor:publish --tag=privacy-config
 php artisan privacy:discover
 ```
 
-While the version is `0.x` the policy DSL and the command surface may change in
-any minor release. Composer treats `0.x` as breaking by default, so `^0.1` will
-not quietly move you to `0.2`.
-
 To try the erasure lifecycle as well:
 
 ```bash
@@ -918,6 +914,9 @@ team a map, a gate and a record, take those to whoever owns that judgement.
 Provided under the MIT licence, without warranty of any kind.
 
 ## Development
+
+While the version is `0.x` the policy DSL and the command names can still change
+in a minor release.
 
 ```bash
 composer install
