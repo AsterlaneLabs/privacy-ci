@@ -100,26 +100,9 @@ takes a sprint, and you still cannot prove the deletion worked.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph repo["Your repository (read, never executed)"]
-        direction TB
-        MIG["migrations"]
-        MOD["models"]
-        CFG["config/"]
-        LOCK["composer.lock"]
-        SRC["app/ source"]
-    end
-
-    repo --> DISC["privacy:discover"]
-    POL["your GDPR policy<br/>as code"] --> DISC
-    DISC --> MAN[("findings manifest")]
-
-    MAN --> CHECK["privacy:check<br/>CI gate, exit 1"]
-    MAN --> GEN["privacy:make-handler<br/>deletion code"]
-    GEN --> RUN["privacy:forget<br/>suspend, then erase"]
-    RUN --> VER["privacy:verify<br/>proof of erasure"]
-```
+<p align="center">
+  <img alt="Discovery reads your repository into a findings manifest; your GDPR policy classifies it; from there privacy:check gates CI while make-handler, forget and verify carry out and prove the erasure" src="https://raw.githubusercontent.com/AsterlaneLabs/privacy-ci/main/docs/media/architecture.svg" width="900">
+</p>
 
 Discovery and the policy meet in one document, the findings manifest. Everything
 downstream is an operation on that document: the gate diffs it, the generator compiles it,
