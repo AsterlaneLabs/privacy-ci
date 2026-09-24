@@ -979,6 +979,21 @@ vendor/bin/phpunit --testsuite Unit     # no Laravel boot required
 The demo app under `tests/fixtures/demo-app` wires migrations, models and a policy into
 the conventional Laravel locations, so it exercises the whole path.
 
+### Regenerating the screenshots
+
+The GIFs under `docs/media` are recordings of real runs, never mockups, and the sample
+output in the text is captured from the same runs. `.demo/record-discover.sh` re-records
+`discover.gif` against `tests/fixtures/demo-app` — the same data the text block above
+comes from, so the page cannot contradict itself.
+
+**Run it from a real terminal window.** Laravel only colours its output when it believes
+it is writing to a TTY, and that belief does not survive being driven from a CI shell or
+an agent: the recording comes out correct and entirely grey, which looks broken beside
+the other two. `--ansi` does not override it.
+
+`check.gif` and `verify.gif` show commands whose output this tooling does not affect;
+re-record them only when `privacy:check` or `privacy:verify` itself changes.
+
 ### Working against a real application
 
 To develop against an app on the same machine, point Composer at the checkout rather than
