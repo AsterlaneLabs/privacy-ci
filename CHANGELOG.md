@@ -12,7 +12,26 @@ not silently upgrade you to `0.2`.
 The findings manifest carries its own `schema_version`, versioned separately and
 far more slowly, a newer package should still read an older manifest.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-24
+
+### Upgrading from 0.1.x
+
+**Expect `privacy:check` to fail on your first run after upgrading**, if your
+application indexes anyone into a search cluster. Scout's `Searchable` trait now
+produces deterministic findings, and an index of personal data that no policy
+classifies is exactly what the gate exists to stop. Classify them with
+`deleteSearch()`, or re-run `privacy:baseline` to adopt them as pre-existing.
+This is a minor release on `0.x`, which Composer treats as breaking, so `^0.1`
+will not pull it in until you ask for it.
+
+Two smaller things to know:
+
+- A search location's id changed shape. `deleteSearch('users_index')` used to
+  record `search:default:users_index` and now records
+  `search:default:users_index/{id}`, because a bare index name addresses nobody.
+  A baseline entry for the old id is reported as stale.
+- The console report gained a `store` column and section headers, so anything
+  parsing that output rather than `--json` needs adjusting.
 
 ### Added
 
