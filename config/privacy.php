@@ -44,7 +44,14 @@ return [
         ],
 
         // Stage B: application code to scan for identifiers written outside the
-        // database, cache keys, object-storage paths, Redis keys.
+        // database, cache keys, object-storage paths, Redis keys, and documents
+        // written into a search cluster through the SDK.
+        //
+        // Widen this to wherever your code actually lives. A domain-organised
+        // application keeps the repository that writes users into OpenSearch
+        // well outside app/, and a path that is not scanned reports as an
+        // absence of findings rather than as an absence of scanning:
+        // [app_path(), base_path('src')]
         //
         // Findings from here are always Linkage::Inferred and can only ever
         // warn. PHP interpolates dynamically and applications wrap everything,

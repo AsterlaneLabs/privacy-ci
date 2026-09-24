@@ -10,6 +10,7 @@ use PrivacyCI\Discovery\Models\ModelMap;
 use PrivacyCI\Discovery\Scanners\IntegrationScanner;
 use PrivacyCI\Discovery\Scanners\MigrationScanner;
 use PrivacyCI\Discovery\Scanners\ModelScanner;
+use PrivacyCI\Discovery\Scanners\SearchFlowScanner;
 use PrivacyCI\Discovery\Scanners\StaticFlowScanner;
 use PrivacyCI\Discovery\Schema\SchemaMap;
 use PrivacyCI\Manifest\Classification;
@@ -35,6 +36,7 @@ final class Discoverer
         private readonly ColumnHeuristics $heuristics = new ColumnHeuristics,
         private readonly ModelScanner $models = new ModelScanner,
         private readonly StaticFlowScanner $flows = new StaticFlowScanner,
+        private readonly SearchFlowScanner $searchFlows = new SearchFlowScanner,
         /** Findings below this are not worth a developer's attention. */
         private readonly float $minConfidence = 0.25,
     ) {
@@ -118,13 +120,14 @@ final class Discoverer
         // Stage C: search indexes. A Scout-searchable model copies personal
         // columns out of the database entirely, and an erasure that only touches
         // rows leaves that copy behind.
-        $searchLocations = $this->searchLocations(
-            $models,
-            $subject,
-            $reachable,
-            $declared,
-            IntegrationScanner::searchConnection($integrations) ?? 'scout',
-        );
+        $searchStore = IntegrationScanner::searchConnection($integrations) ?? 'scout';
+
+        $searchLocations = [
+            ...$this->searchLocations($models, $subject, $reachable, $declared, $searchStore),
+            // Documents written through the SDK rather than through Scout, which
+            // is how most Laravel applications reach a cluster at all.
+            ...$this->searchFlowLocations($sourcePaths, $subject, $searchStore),
+        ];
 
         foreach ($searchLocations as $location) {
             if (! isset($seen[$location->path])) {
@@ -150,6 +153,41 @@ final class Discoverer
             environment: $environment,
             commit: $commit,
             scannedAt: gmdate('Y-m-d\TH:i:s\Z'),
+        );
+    }
+
+    /**
+     * Documents written straight through an Elasticsearch or OpenSearch client.
+     *
+     * Inferred, like everything static analysis produces, so these warn and
+     * never fail a build. The index name is usually a variable or a facade call
+     * rather than a literal, which leaves a placeholder in the pattern and makes
+     * the location honestly unverifiable, and that is still worth reporting: an
+     * index of users nobody has classified is the finding, whether or not we can
+     * name the cluster it sits in.
+     *
+     * @param  list<string>  $sourcePaths
+     * @return list<Location>
+     */
+    private function searchFlowLocations(array $sourcePaths, Subject $subject, string $store): array
+    {
+        if ($sourcePaths === []) {
+            return [];
+        }
+
+        return array_map(
+            static fn (FlowFinding $f): Location => new Location(
+                id: Location::idFor($f->kind, $f->store, $f->pattern),
+                kind: $f->kind,
+                store: $f->store,
+                path: $f->pattern,
+                subject: $subject->type,
+                linkage: Linkage::Inferred,
+                confidence: $f->confidence,
+                classification: Classification::Unclassified,
+                evidence: $f->evidence,
+            ),
+            $this->searchFlows->scan($sourcePaths, $subject, $store),
         );
     }
 

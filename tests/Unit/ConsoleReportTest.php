@@ -143,6 +143,36 @@ final class ConsoleReportTest extends TestCase
     }
 
     #[Test]
+    public function a_cluster_we_mapped_nothing_in_says_so(): void
+    {
+        // Silence here reads as a clean result and is usually a miss: a cluster
+        // is in composer.lock because something writes to it. Found on a real
+        // application whose OpenSearch code sat outside discovery.source_paths.
+        $report = (new ConsoleReport(ansi: false))->render(new Manifest(
+            project: 'x',
+            subjects: [new Subject('user', 'users.id')],
+            locations: [$this->location(LocationKind::DatabaseColumn, 'primary', 'users.email')],
+            integrations: [new Integration('OpenSearch', 'opensearch-project/opensearch-php', true)],
+        ));
+
+        $this->assertStringContainsString('no indexed personal data was found', $report);
+        $this->assertStringContainsString('discovery.source_paths', $report);
+    }
+
+    #[Test]
+    public function a_cluster_we_did_map_does_not_nag(): void
+    {
+        $report = (new ConsoleReport(ansi: false))->render(new Manifest(
+            project: 'x',
+            subjects: [new Subject('user', 'users.id')],
+            locations: [$this->location(LocationKind::SearchIndex, 'opensearch', 'users/{id}')],
+            integrations: [new Integration('OpenSearch', 'opensearch-project/opensearch-php', true)],
+        ));
+
+        $this->assertStringNotContainsString('no indexed personal data was found', $report);
+    }
+
+    #[Test]
     public function a_long_package_name_does_not_push_the_last_column_out(): void
     {
         // 'opensearch-project/opensearch-php' is longer than the fixed width the

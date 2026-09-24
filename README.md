@@ -259,6 +259,41 @@ comment happened to share the user's id, which is data loss wearing a passing te
 A model further than one hop from the subject is reported as an index with no addressable
 subject inside it, and says so, rather than guessing a column that is not a user id.
 
+**Most applications never touch Scout.** Elasticsearch has not been a first-party
+engine since Scout 3, so a cluster is usually reached through the SDK directly, wrapped
+in a repository nobody thought to call a privacy boundary. Matching on the call does not
+find those, because real code splits the request from the send:
+
+```php
+// one method builds it
+$params['index'] = $index;
+$params['id'] = $user->user_id;
+$params['body']['username'] = $user->username;
+
+// a different method, usually a different file, sends it
+$this->client->index($params);
+```
+
+Following `$params` across that needs interprocedural dataflow. So discovery matches the
+*request shape* instead — an array carrying both an `index` and an `id`, where the id
+names the subject — which is the part that cannot be avoided whether the array is a
+literal in the call or built a key at a time:
+
+```text
+  location      store       linkage         confidence      classification
+  {index}/{id}  opensearch  inferred        0.60            UNCLASSIFIED
+```
+
+The index name is usually a variable or a facade call rather than a literal, which leaves
+a placeholder and makes the location honestly unverifiable. It is still the finding worth
+having: an index of users nobody has classified, whether or not we can name the cluster.
+Like everything from static analysis it is `inferred`, so it warns and never fails CI.
+
+This only sees code inside `discovery.source_paths`, which defaults to `app_path()`. If
+your repositories live in `src/`, widen it — an unscanned path reports as an absence of
+findings, not as an absence of scanning. When a cluster is configured and nothing was
+mapped in it, the report says so rather than staying quiet.
+
 **Scout is an abstraction over engines, not an engine.** It ships Algolia, Meilisearch,
 Typesense, database and collection; Elasticsearch has not been first-party since Scout 3,
 so applications reach it through a community driver or the SDK directly. Discovery reads

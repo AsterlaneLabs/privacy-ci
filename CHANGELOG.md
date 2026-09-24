@@ -40,6 +40,18 @@ far more slowly, a newer package should still read an older manifest.
   - `deleteSearch()` takes a `by:` argument naming the field that holds the
     subject id. `$connection` stays in second position, so existing positional
     calls are unaffected.
+- **Documents written through the Elasticsearch or OpenSearch SDK**, not just
+  through Scout. Testing the Scout-only version against a real application found
+  nothing at all in it: the app reaches OpenSearch through the client directly,
+  which is the normal arrangement now that Elasticsearch has not been a
+  first-party Scout engine since Scout 3. Matching on the call does not work,
+  because the request is assembled in one method and sent from another, so
+  `SearchFlowScanner` matches the request shape instead: an array carrying both
+  an `index` and an `id` where the id names the subject, whether it is a literal
+  in the call or built a key at a time. Inferred, so it warns and never fails CI.
+- A detected search cluster in which nothing was mapped now says so, and points
+  at `discovery.source_paths`. Silence there reads as a clean result and is
+  usually a repository sitting outside the scanned paths.
 - Elasticsearch, OpenSearch and Laravel Scout are now reported as scannable
   rather than as detected-but-unsupported.
 - A **store** column in the console report, so where a location physically lives

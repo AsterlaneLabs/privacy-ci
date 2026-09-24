@@ -8,6 +8,7 @@ use PrivacyCI\Manifest\Classification;
 use PrivacyCI\Manifest\Integration;
 use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
+use PrivacyCI\Manifest\LocationKind;
 use PrivacyCI\Manifest\Manifest;
 
 /**
@@ -214,7 +215,53 @@ final class ConsoleReport
             $lines[] = $this->dim('  Personal data may be flowing there unmapped.');
         }
 
+        foreach ($this->unmappedSearch($manifest) as $line) {
+            $lines[] = $line;
+        }
+
         return implode("\n", $lines)."\n";
+    }
+
+    /**
+     * A search cluster we can scan, in which we mapped nothing.
+     *
+     * Silence here reads as a clean result and is usually a miss. A cluster is
+     * in composer.lock because something writes to it, so zero locations almost
+     * always means the code that does the writing was not scanned, rather than
+     * that no personal data is in there.
+     *
+     * @return list<string>
+     */
+    private function unmappedSearch(Manifest $manifest): array
+    {
+        $clusters = [];
+
+        foreach ($manifest->integrations as $integration) {
+            if ($integration->supported
+                && in_array($integration->kind, ['Elasticsearch', 'OpenSearch'], true)) {
+                $clusters[] = $integration->kind;
+            }
+        }
+
+        if ($clusters === []) {
+            return [];
+        }
+
+        foreach ($manifest->locations() as $location) {
+            if ($location->kind === LocationKind::SearchIndex) {
+                return [];
+            }
+        }
+
+        return [
+            '',
+            $this->amber(sprintf(
+                '  %s is configured and no indexed personal data was found in it.',
+                implode(' and ', $clusters),
+            )),
+            $this->dim('  If your application indexes people, the code that does it is probably'),
+            $this->dim('  outside discovery.source_paths. Widen it and run again.'),
+        ];
     }
 
     private function summary(Manifest $manifest): string
