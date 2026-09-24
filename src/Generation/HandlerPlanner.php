@@ -10,6 +10,7 @@ use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
 use PrivacyCI\Manifest\LocationKind;
 use PrivacyCI\Manifest\Manifest;
+use PrivacyCI\Manifest\SearchTarget;
 use PrivacyCI\Manifest\Subject;
 
 /**
@@ -160,6 +161,24 @@ final class HandlerPlanner
             return null;
         }
 
+        $notes = $location->linkage === Linkage::Inferred
+            ? ['inferred by static analysis, confirm this key before relying on it']
+            : [];
+
+        // A search target naming only an index has no document id and no field,
+        // so nothing here can address the subject inside it. Emitting a delete
+        // would either be a no-op or wipe the index; both are worse than a TODO.
+        $wholeIndex = $location->kind === LocationKind::SearchIndex
+            && SearchTarget::parse($location->path)->isWholeIndex();
+
+        if ($wholeIndex) {
+            $notes[] = sprintf(
+                'names the index but no document id or field holding the subject id; '
+                .'add ->deleteSearch(\'%s\', by: \'...\') naming the field',
+                $location->path,
+            );
+        }
+
         return new HandlerStep(
             label: $location->path,
             classification: $location->classification,
@@ -171,12 +190,11 @@ final class HandlerPlanner
             handler: $location->classification === Classification::Custom
                 ? $this->handlerFromEvidence($location)
                 : null,
-            notes: $location->linkage === Linkage::Inferred
-                ? ['inferred by static analysis, confirm this key before relying on it']
-                : [],
+            notes: $notes,
             kind: $location->kind,
-            actionable: $location->kind !== LocationKind::ExternalService
-                || $location->classification === Classification::Custom,
+            actionable: ! $wholeIndex
+                && ($location->kind !== LocationKind::ExternalService
+                    || $location->classification === Classification::Custom),
         );
     }
 

@@ -24,6 +24,10 @@ final class Rule
      * @param  array<string, mixed>     $replacements  Column => replacement, for ANONYMIZE.
      *                                                 Kept so a generated handler can write the
      *                                                 update rather than leaving a TODO.
+     * @param  bool                     $storeStated   Whether the policy *named* the store, as
+     *                                                 opposed to falling back to the default.
+     *                                                 The difference decides whether this rule
+     *                                                 may overwrite a store discovery detected.
      */
     public function __construct(
         public readonly string $target,
@@ -33,6 +37,7 @@ final class Rule
         public readonly string $store = 'primary',
         public readonly ?string $declaredAt = null,
         public readonly array $replacements = [],
+        public readonly bool $storeStated = true,
     ) {
     }
 

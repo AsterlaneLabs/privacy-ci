@@ -127,47 +127,51 @@ vendor/bin/privacy-ci --path=. --no-ansi
 ```text
 PERSONAL DATA: HIGH CONFIDENCE
 
-  audit_entries.actor_id           relationship    1.00 certain    DELETE
-  comments.author_ip               name match      0.99            ANONYMIZE
-  comments.user_id                 foreign key     1.00 certain    ANONYMIZE
-  orders.buyer_id                  foreign key     1.00 certain    RETAIN
-  orders.shipping_address          name match      0.95            RETAIN
-  recommendation_events.device_id  name match      0.98            UNCLASSIFIED
-  recommendation_events.user_id    foreign key     1.00 certain    UNCLASSIFIED
-  sessions.ip_address              name match      0.99            ANONYMIZE
-  sessions.user_id                 foreign key     1.00 certain    ANONYMIZE
-  subscribers.email                name match      0.99            UNCLASSIFIED
-  users.email                      name match      0.99            DELETE
-  users.id                         subject root    1.00 certain    DELETE
-  users.password                   name match      0.99            DELETE
-  users.phone                      name match      0.99            DELETE
-  profile:{id}                     declared        1.00 certain    DELETE
-  avatars/{id}.jpg                 declared        1.00 certain    DELETE
+  location                         store    linkage         confidence      classification
+  audit_entries.actor_id           primary  relationship    1.00 certain    DELETE
+  comments.author_ip               primary  name match      0.99            ANONYMIZE
+  comments.user_id                 primary  foreign key     1.00 certain    ANONYMIZE
+  orders.buyer_id                  primary  foreign key     1.00 certain    RETAIN
+  orders.shipping_address          primary  name match      0.95            RETAIN
+  recommendation_events.device_id  primary  name match      0.98            UNCLASSIFIED
+  recommendation_events.user_id    primary  foreign key     1.00 certain    UNCLASSIFIED
+  sessions.ip_address              primary  name match      0.99            ANONYMIZE
+  sessions.user_id                 primary  foreign key     1.00 certain    ANONYMIZE
+  subscribers.email                primary  name match      0.99            UNCLASSIFIED
+  users.email                      primary  name match      0.99            DELETE
+  users.id                         primary  subject root    1.00 certain    DELETE
+  users.password                   primary  name match      0.99            DELETE
+  users.phone                      primary  name match      0.99            DELETE
+  profile:{id}                     default  declared        1.00 certain    DELETE
+  comments_index?user_id={id}      scout    foreign key     1.00 certain    DELETE
+  users/{id}                       scout    subject root    1.00 certain    DELETE
+  avatars/{id}.jpg                 s3       declared        1.00 certain    DELETE
 
 PERSONAL DATA: POSSIBLE (review required)
 
-  sessions.user_agent              name match      0.70            UNCLASSIFIED
-  users.name                       name match      0.65            DELETE
+  location                         store    linkage         confidence      classification
+  sessions.user_agent              primary  name match      0.70            UNCLASSIFIED
+  users.name                       primary  name match      0.65            DELETE
 
 LOW CONFIDENCE (may embed personal data)
 
-  comments.body                    name match      0.40            UNCLASSIFIED
-  recommendation_events.payload    name match      0.38            UNCLASSIFIED
+  location                         store    linkage         confidence      classification
+  comments.body                    primary  name match      0.40            UNCLASSIFIED
+  recommendation_events.payload    primary  name match      0.38            UNCLASSIFIED
 
 STORES AND SERVICES DETECTED
 
   Intercom            config/services.php           not yet scannable
-  Laravel Scout       laravel/scout                 not yet scannable
-  Postmark            config/mail.php               not yet scannable
+  Laravel Scout       laravel/scout                 scannable
   Redis               predis/predis                 scannable
   S3                  config/filesystems.php        scannable
   Snowflake           config/services.php           not yet scannable
   Stripe              stripe/stripe-php             not yet scannable
 
-  5 stores detected that this version cannot scan: Intercom, Laravel Scout, Postmark, Snowflake, Stripe
+  3 stores detected that this version cannot scan: Intercom, Snowflake, Stripe
   Personal data may be flowing there unmapped.
 
-20 locations found · 14 classified · 6 unclassified · 1 would fail CI
+22 locations found · 16 classified · 6 unclassified · 1 would fail CI
 ```
 
 </details>
@@ -216,6 +220,63 @@ It also reads `$hidden` and encrypted casts. A developer marking a column sensit
 the framework's own vocabulary is weak evidence on its own, but it usefully raises
 confidence on a column a name heuristic was unsure about.
 
+### Search indexes are followed into Elasticsearch and OpenSearch
+
+A `Searchable` model copies personal columns *out* of the database. An erasure written
+against rows alone leaves that copy behind, and the copy is the one with a public search
+box in front of it.
+
+Scout's trait is read as a deterministic finding, not a guess:
+
+```php
+class User extends Authenticatable
+{
+    use Searchable;
+
+    public function toSearchableArray(): array
+    {
+        return ['name' => $this->name, 'email' => $this->email];
+    }
+}
+```
+
+```text
+  location                     store       linkage         confidence      classification
+  comments_index?user_id={id}  opensearch  foreign key     1.00 certain    UNCLASSIFIED
+  users/{id}                   opensearch  subject root    1.00 certain    UNCLASSIFIED
+```
+
+Those two shapes are the whole of it, and the difference matters:
+
+| | |
+|---|---|
+| `users/{id}` | The subject **is** the document; its id is the document id |
+| `comments_index?user_id={id}` | The subject is a **field**; documents are keyed by something else |
+
+A comment's document id is the comment's id, so nothing can address it by the subject's
+id alone. Reporting it as `comments_index/{id}` would generate a delete against whichever
+comment happened to share the user's id, which is data loss wearing a passing test.
+A model further than one hop from the subject is reported as an index with no addressable
+subject inside it, and says so, rather than guessing a column that is not a user id.
+
+**Scout is an abstraction over engines, not an engine.** It ships Algolia, Meilisearch,
+Typesense, database and collection; Elasticsearch has not been first-party since Scout 3,
+so applications reach it through a community driver or the SDK directly. Discovery reads
+`use Searchable` to find *which models* are indexed whatever the engine, and reads the
+driver in your `composer.lock` to work out *which cluster* that is:
+
+The **store** column is how that shows up in the report: `primary` for the database,
+`opensearch` or `elasticsearch` for a detected cluster, `scout` when nothing said which.
+
+| Installed | Recorded store |
+|---|---|
+| `matchish/laravel-scout-elasticsearch`, `babenkoivan/elastic-scout-driver`, `jeroen-g/explorer`, `elasticsearch/elasticsearch` | `elasticsearch` |
+| `opensearch-project/opensearch-php` | `opensearch` |
+| Scout alone, or both clients at once | `scout`, left for your policy to name |
+
+On Algolia or Meilisearch the indexes are still discovered and still classified; only
+verification is engine-specific, and it reports `UNCHECKED` rather than guessing.
+
 ### Static analysis finds what the schema cannot
 
 Plenty of personal data never reaches a column. Stage B reads your application code for
@@ -228,8 +289,9 @@ Redis::set('profile:' . $user->id, $json);
 ```
 
 ```text
-  user:{user.id}         inferred   0.80   UNCLASSIFIED
-  avatars/{user.id}.jpg  inferred   0.80   UNCLASSIFIED
+  location               store    linkage         confidence      classification
+  user:{user.id}         cache    inferred        0.80            UNCLASSIFIED
+  avatars/{user.id}.jpg  s3       inferred        0.80            UNCLASSIFIED
 ```
 
 Patterns keep the interpolated expression, `user:{user.id}` and not `user:*`, because a
@@ -291,6 +353,20 @@ the thing an auditor asks about first.
 Rules for Redis, object storage, search indexes and third-party services **add** locations
 to the map. The developer is describing somewhere the scanner cannot reach, and a declared
 location belongs on the map just as much as a found one.
+
+A search rule names the index, and names the field when the documents are keyed by
+something other than the subject:
+
+```php
+$this->deleteSearch('users');                                   // users/{id}
+$this->deleteSearch('comments_index', by: 'user_id');           // delete by query
+$this->deleteSearch('posts', 'opensearch', by: 'author_id');    // on a named cluster
+```
+
+A rule naming a connection **re-homes** an index discovery found, so `scout` becomes
+`opensearch` and both the generated handler and the probe go to the right cluster. Leaving
+it out is not the same as naming the default: discovery already read the cluster off your
+installed driver, and an argument nobody filled in does not overrule that.
 
 ### Suppression needs a reason
 
@@ -447,7 +523,11 @@ final class DeleteUser implements SubjectDeleter
 
         Storage::disk('s3')->delete("avatars/{$subjectId}.jpg");
 
+        app(SearchIndex::class)->deleteByQuery('comments_index', 'user_id', (string) $subjectId);
+
         Redis::del("profile:{$subjectId}");
+
+        app(SearchIndex::class)->deleteDocument('users', (string) $subjectId);
 
         do {
             $deleted = \App\Models\AuditEntry::query()
@@ -644,9 +724,27 @@ A run with any gaps reports **VERIFIED WITH GAPS**, never **VERIFIED**, and exit
 non-zero. Each result carries a stable `sha256` fingerprint that excludes the timestamp,
 so the same evidence hashes identically whenever it is re-rendered.
 
-Probes ship for database, object storage and Redis; register them in
+Probes ship for database, object storage, Redis and search; register them in
 `verification.probes`. Removing one does not weaken the report, the addresses it covered
 simply show as unchecked, which is the honest outcome.
+
+`SearchProbe` speaks to Elasticsearch and OpenSearch, and neither SDK is a dependency of
+this package: the client is duck-typed, so bind whichever one you already have.
+
+```php
+'search' => [
+    'clients' => [
+        'default' => \Elastic\Elasticsearch\Client::class,
+        // 'opensearch' => \OpenSearch\Client::class,
+    ],
+],
+```
+
+The generated handler and the probe go through **the same client**, so what erasure
+removed and what verification looks for cannot drift apart. Deletes are issued with
+`refresh`, because an index is near-real-time and a check moments later would otherwise
+report the subject still present. A cluster that cannot be reached is `UNCHECKED`, never
+`PASS`; an index that does not exist holds nobody and passes.
 
 ### The snapshot has to come first
 

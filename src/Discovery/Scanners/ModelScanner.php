@@ -35,6 +35,16 @@ final class ModelScanner
         'Illuminate\\Foundation\\Auth\\User',
     ];
 
+    /**
+     * Scout's trait, fully qualified.
+     *
+     * Matched on the resolved name only. An application's own `Searchable`
+     * trait is a different thing entirely, and a Scout finding is deterministic
+     * enough to fail a build, so guessing from the short name would let an
+     * unrelated trait block someone's deploy.
+     */
+    private const SCOUT_TRAIT = 'Laravel\\Scout\\Searchable';
+
     private const RELATION_METHODS = [
         'belongsTo', 'hasMany', 'hasOne', 'belongsToMany',
         'morphTo', 'morphMany', 'morphOne', 'hasManyThrough', 'hasOneThrough',
@@ -106,9 +116,11 @@ final class ModelScanner
         $map = new ModelMap;
 
         foreach ($candidates as $candidate) {
-            if ($this->descendsFromModel($candidate['parent'], $candidates)) {
-                $map->add($candidate['model']);
+            if (! $this->descendsFromModel($candidate['parent'], $candidates)) {
+                continue;
             }
+
+            $map->add($this->withInheritedSearch($candidate, $candidates));
         }
 
         return $map;
@@ -190,6 +202,8 @@ final class ModelScanner
 
         $table = $this->stringProperty($class, 'table') ?? Inflector::tableName($name);
 
+        $searchable = $this->usesScout($class);
+
         return [
             'parent' => $class->extends?->toString(),
             'model' => new ModelDefinition(
@@ -200,6 +214,9 @@ final class ModelScanner
                 hidden: $this->arrayProperty($class, 'hidden'),
                 casts: $this->casts($class),
                 definedIn: basename($file),
+                searchable: $searchable,
+                searchableAs: $this->searchableAs($class),
+                searchableFields: $this->searchableFields($class),
             ),
         ];
     }
@@ -320,6 +337,126 @@ final class ModelScanner
                     return $prop->default;
                 }
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * Scout's trait reached through a base class as well as directly.
+     *
+     * `class Post extends BaseModel` where BaseModel uses Searchable is still an
+     * indexed model, and it is the shape most likely to be missed by hand.
+     *
+     * @param  array{parent: ?string, model: ModelDefinition}                  $candidate
+     * @param  array<string, array{parent: ?string, model: ModelDefinition}>  $candidates
+     */
+    private function withInheritedSearch(array $candidate, array $candidates): ModelDefinition
+    {
+        $model = $candidate['model'];
+
+        if ($model->searchable) {
+            return $model;
+        }
+
+        $parent = $candidate['parent'];
+
+        for ($depth = 0; $parent !== null && $depth <= 10; $depth++) {
+            $ancestor = $candidates[$parent] ?? null;
+
+            if ($ancestor === null) {
+                return $model;
+            }
+
+            if ($ancestor['model']->searchable) {
+                // searchableAs() is inherited only when the base states one
+                // literally; otherwise Scout falls back to *this* model's table.
+                return $model->withSearchable(
+                    $ancestor['model']->searchableAs,
+                    $ancestor['model']->searchableFields,
+                );
+            }
+
+            $parent = $ancestor['parent'];
+        }
+
+        return $model;
+    }
+
+    private function usesScout(Node\Stmt\Class_ $class): bool
+    {
+        foreach ($class->stmts as $stmt) {
+            if (! $stmt instanceof Node\Stmt\TraitUse) {
+                continue;
+            }
+
+            foreach ($stmt->traits as $trait) {
+                if ($trait->toString() === self::SCOUT_TRAIT) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** The index named by `searchableAs()`, when it returns a plain string. */
+    private function searchableAs(Node\Stmt\Class_ $class): ?string
+    {
+        $return = $this->returnExpr($class, 'searchableAs');
+
+        return $this->stringValue($return);
+    }
+
+    /**
+     * The columns `toSearchableArray()` copies into the index.
+     *
+     * Evidence, not a location: it is what lets a report say *which* personal
+     * columns left the database. An absent method is not an absent risk, Scout
+     * then indexes the model's whole toArray(), which is the wider exposure.
+     *
+     * @return list<string>
+     */
+    private function searchableFields(Node\Stmt\Class_ $class): array
+    {
+        $return = $this->returnExpr($class, 'toSearchableArray');
+
+        if (! $return instanceof Node\Expr\Array_) {
+            return [];
+        }
+
+        $fields = [];
+
+        foreach ($return->items as $item) {
+            if ($item === null) {
+                continue;
+            }
+
+            $key = $item->key === null ? null : $this->stringValue($item->key);
+
+            if ($key !== null) {
+                $fields[] = $key;
+            }
+        }
+
+        sort($fields);
+
+        return array_values(array_unique($fields));
+    }
+
+    private function returnExpr(Node\Stmt\Class_ $class, string $method): ?Node\Expr
+    {
+        foreach ($class->getMethods() as $candidate) {
+            if ($candidate->name->toString() !== $method) {
+                continue;
+            }
+
+            $return = $this->finder->findFirstInstanceOf(
+                (array) $candidate->stmts,
+                Node\Stmt\Return_::class,
+            );
+
+            return $return instanceof Node\Stmt\Return_ ? $return->expr : null;
         }
 
         return null;

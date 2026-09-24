@@ -39,38 +39,43 @@ final class ConsoleReport
             };
         }
 
-        // One width for the whole report, not one per section: columns that
-        // shift between sections read as three unrelated tables.
-        $width = 0;
+        // One set of widths for the whole report, not one per section: columns
+        // that shift between sections read as three unrelated tables.
+        $widths = ['path' => strlen('location'), 'store' => strlen('store')];
 
         foreach ($manifest->locations() as $location) {
-            $width = max($width, strlen($location->path));
+            $widths['path'] = max($widths['path'], strlen($location->path));
+            $widths['store'] = max($widths['store'], strlen($location->store));
         }
 
         $out = [];
 
-        $out[] = $this->section('PERSONAL DATA: HIGH CONFIDENCE', $high, $width);
-        $out[] = $this->section('PERSONAL DATA: POSSIBLE (review required)', $possible, $width);
-        $out[] = $this->section('LOW CONFIDENCE (may embed personal data)', $weak, $width);
+        $out[] = $this->section('PERSONAL DATA: HIGH CONFIDENCE', $high, $widths);
+        $out[] = $this->section('PERSONAL DATA: POSSIBLE (review required)', $possible, $widths);
+        $out[] = $this->section('LOW CONFIDENCE (may embed personal data)', $weak, $widths);
         $out[] = $this->integrations($manifest);
         $out[] = $this->summary($manifest);
 
         return implode("\n", array_filter($out, static fn (string $s): bool => $s !== ''));
     }
 
-    /** @param list<Location> $locations */
-    private function section(string $heading, array $locations, int $width): string
+    /**
+     * @param  list<Location>                    $locations
+     * @param  array{path: int, store: int}      $widths
+     */
+    private function section(string $heading, array $locations, array $widths): string
     {
         if ($locations === []) {
             return '';
         }
 
-        $lines = [$this->dim($heading), ''];
+        $lines = [$this->dim($heading), '', $this->header($widths)];
 
         foreach ($locations as $location) {
             $lines[] = sprintf(
-                '  %s  %s  %s  %s',
-                str_pad($location->path, $width),
+                '  %s  %s  %s  %s  %s',
+                str_pad($location->path, $widths['path']),
+                $this->store($location, $widths['store']),
                 str_pad($this->linkageLabel($location->linkage), 14),
                 $this->confidence($location, 14),
                 $this->classification($location->classification),
@@ -78,6 +83,50 @@ final class ConsoleReport
         }
 
         return implode("\n", $lines)."\n";
+    }
+
+    /**
+     * Names the columns.
+     *
+     * Four self-describing columns did not need this: nobody wonders what
+     * `foreign key` or `DELETE` is. `store` does need it, because `default` and
+     * `scout` are meaningless without a label, and a column nobody can name is a
+     * column nobody reads.
+     *
+     * The words are the manifest's own, so the report and `--json` describe the
+     * same finding the same way.
+     *
+     * @param  array{path: int, store: int}  $widths
+     */
+    private function header(array $widths): string
+    {
+        return $this->dim(sprintf(
+            '  %s  %s  %s  %s  %s',
+            str_pad('location', $widths['path']),
+            str_pad('store', $widths['store']),
+            str_pad('linkage', 14),
+            str_pad('confidence', 14),
+            'classification',
+        ));
+    }
+
+    /**
+     * Where this location physically lives.
+     *
+     * Two indexes named `users/{id}` are different places depending on whether
+     * Scout is backed by OpenSearch or nobody has said yet, and until this
+     * column existed the answer was only in `--json`.
+     *
+     * `primary` is dimmed rather than left blank. A hole on four rows in five
+     * makes a ragged column out of the one a reader is scanning precisely to
+     * answer "where does this live?", and the database is an answer to that
+     * question like any other.
+     */
+    private function store(Location $location, int $width): string
+    {
+        $padded = str_pad($location->store, $width);
+
+        return $location->store === 'primary' ? $this->dim($padded) : $padded;
     }
 
     private function linkageLabel(Linkage $linkage): string
@@ -125,11 +174,22 @@ final class ConsoleReport
 
         $lines = [$this->dim('STORES AND SERVICES DETECTED'), ''];
 
+        // Measured, not assumed. A fixed 28 fitted 'config/filesystems.php' and
+        // not 'opensearch-project/opensearch-php', which pushed the last column
+        // out on exactly the row a reader most wants to scan.
+        $kindWidth = 18;
+        $sourceWidth = 28;
+
+        foreach ($manifest->integrations as $integration) {
+            $kindWidth = max($kindWidth, strlen($integration->kind));
+            $sourceWidth = max($sourceWidth, strlen($integration->detectedFrom));
+        }
+
         foreach ($manifest->integrations as $integration) {
             $lines[] = sprintf(
                 '  %s  %s  %s',
-                str_pad($integration->kind, 18),
-                str_pad($integration->detectedFrom, 28),
+                str_pad($integration->kind, $kindWidth),
+                str_pad($integration->detectedFrom, $sourceWidth),
                 $integration->supported ? $this->green('scannable') : $this->amber('not yet scannable'),
             );
         }

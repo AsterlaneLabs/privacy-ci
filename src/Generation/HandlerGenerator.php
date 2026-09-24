@@ -6,6 +6,7 @@ namespace PrivacyCI\Generation;
 
 use PrivacyCI\Manifest\Classification;
 use PrivacyCI\Manifest\LocationKind;
+use PrivacyCI\Manifest\SearchTarget;
 
 /**
  * Writes the deletion handler a policy implies.
@@ -140,6 +141,9 @@ final class HandlerGenerator
         $store = (string) $step->store;
 
         return match (true) {
+            // Checked before storage, because a search index is neither a disk
+            // nor a key-value store and the fall-through used to hand it to Redis.
+            $step->kindIsSearch() => $this->searchLines($step),
             $step->kindIsStorage() => [
                 sprintf("Storage::disk('%s')->delete(\"%s\");", $store, $pattern),
             ],
@@ -147,6 +151,53 @@ final class HandlerGenerator
             $store === 'cache' => [sprintf('Cache::forget("%s");', $pattern)],
             default => [sprintf('Redis::del("%s");', $pattern)],
         };
+    }
+
+    /**
+     * Removes the subject from a search index.
+     *
+     * Goes through the package's own SearchIndex rather than an SDK client so
+     * the handler does not have to know whether the cluster is Elasticsearch or
+     * OpenSearch, and so erasure and verification ask the index the same
+     * question. `$subjectId` is passed as an argument, not interpolated into a
+     * string: a document id is a value, and quoting it would break on any
+     * subject key that is not a plain integer.
+     *
+     * @return list<string>
+     */
+    private function searchLines(HandlerStep $step): array
+    {
+        $target = SearchTarget::parse((string) $step->pattern);
+        $connection = $this->searchConnection($step);
+
+        if ($target->isQuery()) {
+            return [sprintf(
+                "app(SearchIndex::class)->deleteByQuery('%s', '%s', (string) \$subjectId%s);",
+                $target->index,
+                (string) $target->field,
+                $connection,
+            )];
+        }
+
+        return [sprintf(
+            "app(SearchIndex::class)->deleteDocument('%s', (string) \$subjectId%s);",
+            $target->index,
+            $connection,
+        )];
+    }
+
+    /**
+     * The connection argument, omitted when the default would be used anyway.
+     *
+     * 'scout' is what discovery records when the engine is not knowable from
+     * source; naming it explicitly in the handler would imply we know more than
+     * we do.
+     */
+    private function searchConnection(HandlerStep $step): string
+    {
+        $store = (string) $step->store;
+
+        return in_array($store, ['', 'default', 'scout'], true) ? '' : sprintf(", '%s'", $store);
     }
 
     /** @return list<string> */
@@ -273,6 +324,7 @@ final class HandlerGenerator
 
             if ($step->pattern !== null) {
                 $uses[] = match (true) {
+                    $step->kindIsSearch() => 'PrivacyCI\\Search\\SearchIndex',
                     $step->kindIsStorage() => 'Illuminate\\Support\\Facades\\Storage',
                     $step->store === 'cache' => 'Illuminate\\Support\\Facades\\Cache',
                     default => 'Illuminate\\Support\\Facades\\Redis',

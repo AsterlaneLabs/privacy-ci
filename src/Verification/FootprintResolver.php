@@ -9,6 +9,7 @@ use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
 use PrivacyCI\Manifest\LocationKind;
 use PrivacyCI\Manifest\Manifest;
+use PrivacyCI\Manifest\SearchTarget;
 use PrivacyCI\Manifest\Subject;
 
 /**
@@ -41,7 +42,9 @@ final class FootprintResolver
                 continue;
             }
 
-            $addresses[] = $this->storeAddress($location, $subjectId);
+            $addresses[] = $location->kind === LocationKind::SearchIndex
+                ? $this->searchAddress($location, $subjectId)
+                : $this->storeAddress($location, $subjectId);
         }
 
         foreach ($byTable as $table => $locations) {
@@ -143,6 +146,57 @@ final class FootprintResolver
             describe: $resolved,
             expectation: $retained ? Expectation::Retained : Expectation::Absent,
             locator: ['key' => $resolved],
+            reason: $retained ? $location->reason : null,
+        );
+    }
+
+    /**
+     * A search index is document-addressed, so a flat key is the wrong question.
+     *
+     * Either the subject is the document and we ask whether that document is
+     * gone, or they are a field on documents keyed by something else and we ask
+     * whether anything still matches. An index named with neither is a place, not
+     * a person: asking whether `users` exists would pass forever, which is the
+     * one answer a verification report must never give.
+     */
+    private function searchAddress(Location $location, string $subjectId): Address
+    {
+        $target = SearchTarget::parse($location->path)
+            ->withValues(fn (string $value): string => $this->interpolate($value, $subjectId));
+
+        $unverifiable = static fn (string $reason): Address => new Address(
+            locationId: $location->id,
+            kind: $location->kind,
+            store: $location->store,
+            describe: $location->path,
+            expectation: Expectation::Unverifiable,
+            reason: $reason,
+        );
+
+        if ($target->isWholeIndex()) {
+            return $unverifiable(
+                'names an index but no document id or field holding the subject id, '
+                .'so there is nothing to look up',
+            );
+        }
+
+        if (str_contains($target->path(), '{')) {
+            return $unverifiable(
+                'search target contains a placeholder we cannot resolve from the subject id',
+            );
+        }
+
+        $retained = $location->classification === Classification::Retain;
+
+        return new Address(
+            locationId: $location->id,
+            kind: $location->kind,
+            store: $location->store,
+            describe: $target->describe(),
+            expectation: $retained ? Expectation::Retained : Expectation::Absent,
+            locator: $target->isQuery()
+                ? ['index' => $target->index, 'field' => (string) $target->field, 'value' => (string) $target->value]
+                : ['index' => $target->index, 'id' => (string) $target->documentId],
             reason: $retained ? $location->reason : null,
         );
     }

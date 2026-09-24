@@ -164,17 +164,26 @@ final class PolicyCompiler
      */
     private function claim(Location $location, Rule $rule): Location
     {
+        // A rule that never named a connection has not overridden anything. The
+        // search scanner reads the cluster off the installed driver, and letting
+        // an unfilled argument flatten that to 'default' both lost the answer and
+        // wrote "store named by policy: default" about a policy that said no such
+        // thing.
+        $store = $rule->storeStated ? $rule->store : $location->store;
+
         return new Location(
-            id: Location::idFor($rule->kind, $rule->store, $location->path),
+            id: Location::idFor($rule->kind, $store, $location->path),
             kind: $rule->kind,
-            store: $rule->store,
+            store: $store,
             path: $location->path,
             subject: $location->subject,
             linkage: $location->linkage,
             confidence: $location->confidence,
             classification: $rule->classification,
             policySource: $rule->declaredAt,
-            evidence: [...$location->evidence, 'store named by policy: '.$rule->store],
+            evidence: $rule->storeStated
+                ? [...$location->evidence, 'store named by policy: '.$store]
+                : $location->evidence,
             reason: $rule->reasonText(),
         );
     }

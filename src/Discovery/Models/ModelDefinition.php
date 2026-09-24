@@ -12,6 +12,8 @@ final class ModelDefinition
      * @param  list<string>    $fillable
      * @param  list<string>    $hidden
      * @param  array<string, string>  $casts
+     * @param  ?string         $searchableAs      Index named by searchableAs(), if it names one literally.
+     * @param  list<string>    $searchableFields  Keys of toSearchableArray(), empty when it is absent.
      */
     public function __construct(
         public readonly string $class,
@@ -21,7 +23,48 @@ final class ModelDefinition
         public readonly array $hidden = [],
         public readonly array $casts = [],
         public readonly ?string $definedIn = null,
+        public readonly bool $searchable = false,
+        public readonly ?string $searchableAs = null,
+        public readonly array $searchableFields = [],
     ) {
+    }
+
+    /**
+     * The index this model is copied into, or null if it is not indexed.
+     *
+     * Scout defaults searchableAs() to the model's table name, so a model with
+     * the trait and no override still names an index, and that index still holds
+     * personal data whether or not anyone wrote the method.
+     */
+    public function searchIndex(): ?string
+    {
+        if (! $this->searchable) {
+            return null;
+        }
+
+        return $this->searchableAs ?? $this->table;
+    }
+
+    /**
+     * Carries Scout's findings onto a definition that was parsed before its
+     * ancestry was known, so a model extending a searchable base is searchable too.
+     *
+     * @param  list<string>  $fields
+     */
+    public function withSearchable(?string $searchableAs, array $fields): self
+    {
+        return new self(
+            $this->class,
+            $this->table,
+            $this->relations,
+            $this->fillable,
+            $this->hidden,
+            $this->casts,
+            $this->definedIn,
+            true,
+            $searchableAs,
+            $fields,
+        );
     }
 
     public function shortName(): string

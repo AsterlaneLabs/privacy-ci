@@ -153,7 +153,40 @@ return [
             \PrivacyCI\Verification\Probes\DatabaseProbe::class,
             \PrivacyCI\Verification\Probes\StorageProbe::class,
             \PrivacyCI\Verification\Probes\CacheProbe::class,
+            \PrivacyCI\Verification\Probes\SearchProbe::class,
             // \PrivacyCI\Verification\Probes\RedisProbe::class,
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Search
+    |---------------------------------------------------------------------------
+    |
+    | The cluster your search indexes live in. Used both by the generated
+    | deletion handler and by SearchProbe, deliberately the same client, so that
+    | what erasure removed and what verification looks for cannot drift apart.
+    |
+    | Elasticsearch and OpenSearch are both supported and neither is a
+    | dependency of this package: the client is duck-typed, so bind whichever
+    | SDK you already have. Point a connection at a class the container can
+    | resolve, or at a closure returning a configured client.
+    |
+    | Note that Scout is an abstraction over engines, not an engine. Scout ships
+    | Algolia, Meilisearch, Typesense, database and collection; Elasticsearch has
+    | not been first-party since Scout 3, so applications reach it through a
+    | community driver or the SDK directly. Discovery reads `use Searchable` to
+    | find *which models* are indexed whatever the engine, and reads your
+    | installed driver to work out *which cluster* that is. On Algolia or
+    | Meilisearch the indexes are still discovered and still classified, and
+    | verification reports them UNCHECKED until a client for them is bound here.
+    |
+    */
+
+    'search' => [
+        'clients' => [
+            // 'default' => \Elastic\Elasticsearch\Client::class,
+            // 'opensearch' => \OpenSearch\Client::class,
         ],
     ],
 

@@ -32,6 +32,8 @@ use PrivacyCI\Lifecycle\SubjectNotifier;
 use PrivacyCI\Lifecycle\SubjectSuspender;
 use PrivacyCI\Policy\PolicyFingerprint;
 use PrivacyCI\Policy\PrivacyPolicy;
+use PrivacyCI\Search\ClientSearchIndex;
+use PrivacyCI\Search\SearchIndex;
 use PrivacyCI\Verification\Verifier;
 
 final class PrivacyCIServiceProvider extends ServiceProvider
@@ -80,6 +82,34 @@ final class PrivacyCIServiceProvider extends ServiceProvider
             return is_string($configured) && $configured !== ''
                 ? $this->app->make($configured)
                 : new NullSuspender;
+        });
+
+        // bindIf, so an application that already speaks to its cluster through
+        // its own abstraction can bind that instead and have both the generated
+        // handler and the probe go through it.
+        $this->app->bindIf(SearchIndex::class, function (): SearchIndex {
+            /** @var array<string, mixed> $clients */
+            $clients = (array) config('privacy.search.clients', []);
+
+            // Resolved lazily and per connection: a cluster nobody touches is
+            // never connected to, which keeps `privacy:check` runnable in CI
+            // with no search credentials present.
+            return new ClientSearchIndex(function (string $connection) use ($clients): ?object {
+                $client = $clients[$connection] ?? $clients['default'] ?? null;
+
+                if (is_string($client) && $client !== '') {
+                    return $this->app->make($client);
+                }
+
+                // Checked before is_object, since a closure is both.
+                if (is_callable($client)) {
+                    $resolved = $client($this->app);
+
+                    return is_object($resolved) ? $resolved : null;
+                }
+
+                return is_object($client) ? $client : null;
+            });
         });
 
         $this->app->singleton(Verifier::class, function (): Verifier {

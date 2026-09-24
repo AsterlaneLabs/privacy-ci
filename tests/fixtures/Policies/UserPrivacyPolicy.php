@@ -26,5 +26,10 @@ class UserPrivacyPolicy extends PrivacyPolicy
 
         $this->deleteRedis('profile:{id}');
         $this->deleteStorage('avatars/{id}.jpg', disk: 's3');
+
+        // The subject is the document in their own index, and a field on
+        // documents keyed by something else in the comment index.
+        $this->deleteSearch('users');
+        $this->deleteSearch('comments_index', by: 'user_id');
     }
 }

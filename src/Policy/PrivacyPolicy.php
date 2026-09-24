@@ -127,9 +127,55 @@ abstract class PrivacyPolicy
         return $this->push($path, Classification::Delete, LocationKind::ObjectStorage, null, $disk);
     }
 
-    protected function deleteSearch(string $index, string $connection = 'default'): Rule
+    /**
+     * A search index the subject appears in.
+     *
+     *     $this->deleteSearch('users');                     // users/{id}, the subject is the document
+     *     $this->deleteSearch('comments', by: 'user_id');   // comments?user_id={id}, delete by query
+     *
+     * A bare index name means the subject *is* the document and its id is the
+     * document id, which is what Scout does for the subject's own model. Where
+     * the documents are keyed by something else, a post or a comment, name the
+     * field that holds the subject id with `by:`. Nothing can delete or verify
+     * those by the subject's id alone.
+     *
+     * `$connection` stays in second position so existing positional calls keep
+     * working; `by:` is a named argument.
+     *
+     * Leaving the connection out is not the same as naming the default one.
+     * Discovery reads the cluster off the installed driver, which is better
+     * evidence than an argument nobody filled in, so an unstated connection
+     * leaves that finding alone instead of flattening it to 'default'.
+     */
+    protected function deleteSearch(string $index, ?string $connection = null, ?string $by = null): Rule
     {
-        return $this->push($index, Classification::Delete, LocationKind::SearchIndex, null, $connection);
+        return $this->push(
+            $this->searchTarget($index, $by),
+            Classification::Delete,
+            LocationKind::SearchIndex,
+            null,
+            $connection ?? 'default',
+            storeStated: $connection !== null,
+        );
+    }
+
+    /**
+     * Normalises an index name into an addressable target.
+     *
+     * A target already carrying a document id or a query is left alone, so a
+     * stub copied out of `privacy:make-policy` round-trips unchanged.
+     */
+    private function searchTarget(string $index, ?string $by): string
+    {
+        if ($by !== null && $by !== '') {
+            return str_contains($index, '?') ? $index : "{$index}?{$by}={id}";
+        }
+
+        if (str_contains($index, '?') || str_contains($index, '/')) {
+            return $index;
+        }
+
+        return "{$index}/{id}";
     }
 
     protected function deleteService(string $service, string $handler): Rule
@@ -150,6 +196,7 @@ abstract class PrivacyPolicy
         ?array $columns,
         string $store = 'primary',
         array $replacements = [],
+        bool $storeStated = true,
     ): Rule {
         $rule = new Rule(
             target: $target,
@@ -159,6 +206,7 @@ abstract class PrivacyPolicy
             store: $store,
             declaredAt: $this->callerLocation(),
             replacements: $replacements,
+            storeStated: $storeStated,
         );
 
         $this->rules[] = $rule;

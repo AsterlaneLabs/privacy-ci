@@ -12,6 +12,63 @@ not silently upgrade you to `0.2`.
 The findings manifest carries its own `schema_version`, versioned separately and
 far more slowly, a newer package should still read an older manifest.
 
+## [Unreleased]
+
+### Added
+
+- **Search index support for Elasticsearch and OpenSearch**, end to end.
+  - Discovery reads Scout's `Searchable` trait, `searchableAs()` and
+    `toSearchableArray()`, including through a searchable base class, and emits
+    a deterministic `search_index` finding per indexed model. An unclassified
+    index of personal data can now fail CI.
+  - Two addressing forms, because a search index is document-addressed:
+    `users/{id}` when the subject *is* the document, `comments?user_id={id}`
+    when they are a field on documents keyed by something else. A model further
+    than one hop from the subject is reported as an index with no addressable
+    subject rather than guessing a column that is not a user id.
+  - Which cluster a Scout model indexes into is read from the installed driver
+    (`matchish/laravel-scout-elasticsearch`, `babenkoivan/elastic-scout-driver`,
+    `jeroen-g/explorer`, `elasticsearch/elasticsearch`,
+    `opensearch-project/opensearch-php`). Both clients installed at once is
+    recorded as ambiguous rather than guessed.
+  - `PrivacyCI\Search\SearchIndex`, with a duck-typed client adapter. Neither
+    SDK is a dependency of this package; bind whichever one is installed under
+    `privacy.search.clients`.
+  - `SearchProbe` verifies erasure: an exact document lookup for the document
+    form, a count for the query form. A cluster that cannot be reached is
+    `UNCHECKED`, never `PASS`.
+  - `deleteSearch()` takes a `by:` argument naming the field that holds the
+    subject id. `$connection` stays in second position, so existing positional
+    calls are unaffected.
+- Elasticsearch, OpenSearch and Laravel Scout are now reported as scannable
+  rather than as detected-but-unsupported.
+- A **store** column in the console report, so where a location physically lives
+  is legible without reaching for `--json`. `primary` is dimmed; a detected
+  cluster, disk or connection is not.
+- Column headers on each report section, in the manifest's own vocabulary
+  (`location`, `store`, `linkage`, `confidence`, `classification`). Four
+  self-describing columns did not need them; `default` and `scout` do.
+
+### Fixed
+
+- **`deleteSearch()` generated Redis calls.** A search target had no branch of
+  its own in the handler generator and fell through to the key-value default, so
+  a policy declaring `deleteSearch('users_index')` emitted
+  `Redis::del("users_index")` against a search cluster, and imported the Redis
+  facade to do it.
+- A search location naming only an index used to resolve to a literal key and
+  report `absent`/`fail` against the index itself. It is now `UNCHECKED` with the
+  reason, and the generated handler leaves a `TODO` instead of a delete.
+- **An unstated connection silently overwrote a detected one.** `deleteSearch('users')`
+  names no cluster, but the argument's `'default'` fallback was treated as a
+  statement, so a store read from `composer.lock` was flattened to `default` and
+  the finding gained the evidence line `store named by policy: default` about a
+  policy that had said nothing of the sort. An unstated connection now leaves the
+  discovered store alone; naming one still wins.
+- Integration rows no longer misalign. The source column assumed a fixed width
+  that `opensearch-project/opensearch-php` overflows, pushing `scannable` out of
+  line on exactly the row a reader most wants to scan.
+
 ## [0.1.1] - 2026-09-13
 
 ### Changed

@@ -1,0 +1,8 @@
+{
+    "packages": [
+        {"name": "laravel/framework", "version": "v12.0.0"},
+        {"name": "laravel/scout", "version": "v10.0.0"},
+        {"name": "stripe/stripe-php", "version": "v13.0.0"},
+        {"name": "predis/predis", "version": "v2.2.0"}
+    ]
+}

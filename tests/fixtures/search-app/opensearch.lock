@@ -1,0 +1,6 @@
+{
+    "packages": [
+        {"name": "laravel/framework", "version": "v12.0.0"},
+        {"name": "opensearch-project/opensearch-php", "version": "v2.3.0"}
+    ]
+}

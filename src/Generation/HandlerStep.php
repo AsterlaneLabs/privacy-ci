@@ -36,4 +36,10 @@ final readonly class HandlerStep
     {
         return $this->kind === \PrivacyCI\Manifest\LocationKind::ObjectStorage;
     }
+
+    /** A search index needs an index and a document, and never a key. */
+    public function kindIsSearch(): bool
+    {
+        return $this->kind === \PrivacyCI\Manifest\LocationKind::SearchIndex;
+    }
 }
