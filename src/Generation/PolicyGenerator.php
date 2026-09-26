@@ -9,6 +9,7 @@ use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
 use PrivacyCI\Manifest\LocationKind;
 use PrivacyCI\Manifest\Manifest;
+use PrivacyCI\Manifest\SearchTarget;
 use PrivacyCI\Manifest\Subject;
 
 /**
@@ -279,15 +280,51 @@ final class PolicyGenerator
             ? 'inferred by static analysis, confirm the key before enabling'
             : 'declared';
 
-        $call = $method === 'deleteStorage'
-            ? sprintf("// \$this->%s('%s', disk: '%s');", $method, $location->path, $location->store)
-            : sprintf("// \$this->%s('%s');", $method, $location->path);
+        $call = match (true) {
+            $method === 'deleteStorage' => sprintf(
+                "// \$this->%s('%s', disk: '%s');",
+                $method,
+                $location->path,
+                $location->store,
+            ),
+            // A search target carries its addressing in the path. Echoing the
+            // raw path back would have the developer paste `users/{id}` into an
+            // argument called $index, so the stub is written the way the method
+            // is meant to be called.
+            $method === 'deleteSearch' => $this->searchCall(
+                SearchTarget::parse($location->path),
+            ),
+            default => sprintf("// \$this->%s('%s');", $method, $location->path),
+        };
 
         return $this->indent([
             sprintf('// %s %s', $this->rule("── {$location->store}: {$location->path} ", 46), $note),
             '',
             $call,
         ]);
+    }
+
+    /**
+     * Writes the deleteSearch() call a target implies.
+     *
+     * An index we could not link to a column gets the call *and* the question it
+     * still needs answering, rather than a line that would silently delete by a
+     * document id the subject does not have.
+     */
+    private function searchCall(SearchTarget $target): string
+    {
+        if ($target->isQuery()) {
+            return sprintf("// \$this->deleteSearch('%s', by: '%s');", $target->index, $target->field);
+        }
+
+        if ($target->isDocument()) {
+            return sprintf("// \$this->deleteSearch('%s');", $target->index);
+        }
+
+        return sprintf(
+            "// \$this->deleteSearch('%s', by: '???'); // name the field holding the subject id",
+            $target->index,
+        );
     }
 
     /**

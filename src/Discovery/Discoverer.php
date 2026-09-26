@@ -10,6 +10,7 @@ use PrivacyCI\Discovery\Models\ModelMap;
 use PrivacyCI\Discovery\Scanners\IntegrationScanner;
 use PrivacyCI\Discovery\Scanners\MigrationScanner;
 use PrivacyCI\Discovery\Scanners\ModelScanner;
+use PrivacyCI\Discovery\Scanners\SearchFlowScanner;
 use PrivacyCI\Discovery\Scanners\StaticFlowScanner;
 use PrivacyCI\Discovery\Schema\SchemaMap;
 use PrivacyCI\Manifest\Classification;
@@ -17,6 +18,7 @@ use PrivacyCI\Manifest\Linkage;
 use PrivacyCI\Manifest\Location;
 use PrivacyCI\Manifest\LocationKind;
 use PrivacyCI\Manifest\Manifest;
+use PrivacyCI\Manifest\SearchTarget;
 use PrivacyCI\Manifest\Subject;
 
 /**
@@ -34,6 +36,7 @@ final class Discoverer
         private readonly ColumnHeuristics $heuristics = new ColumnHeuristics,
         private readonly ModelScanner $models = new ModelScanner,
         private readonly StaticFlowScanner $flows = new StaticFlowScanner,
+        private readonly SearchFlowScanner $searchFlows = new SearchFlowScanner,
         /** Findings below this are not worth a developer's attention. */
         private readonly float $minConfidence = 0.25,
     ) {
@@ -70,6 +73,12 @@ final class Discoverer
         $graph = new ForeignKeyGraph($schema);
         $reachable = $graph->reachableFrom($subject->rootTable());
         $declared = $this->declaredLinks($models, $subject);
+
+        // Scanned up front rather than at the end, because which search driver is
+        // installed is what names the cluster a Searchable model indexes into.
+        $integrations = $configPaths === [] && $composerLock === null
+            ? []
+            : $this->integrations->scan($configPaths, $composerLock);
 
         $locations = [];
         $seen = [];
@@ -108,6 +117,25 @@ final class Discoverer
             }
         }
 
+        // Stage C: search indexes. A Scout-searchable model copies personal
+        // columns out of the database entirely, and an erasure that only touches
+        // rows leaves that copy behind.
+        $searchStore = IntegrationScanner::searchConnection($integrations) ?? 'scout';
+
+        $searchLocations = [
+            ...$this->searchLocations($models, $subject, $reachable, $declared, $searchStore),
+            // Documents written through the SDK rather than through Scout, which
+            // is how most Laravel applications reach a cluster at all.
+            ...$this->searchFlowLocations($sourcePaths, $subject, $searchStore),
+        ];
+
+        foreach ($searchLocations as $location) {
+            if (! isset($seen[$location->path])) {
+                $locations[] = $location;
+                $seen[$location->path] = true;
+            }
+        }
+
         // A relationship can name a table with no migration in this repository:
         // a legacy table, or one owned by another service. The association is
         // still real and still deterministic, so it must not vanish from the map.
@@ -121,13 +149,196 @@ final class Discoverer
             project: $project,
             subjects: [$subject],
             locations: $locations,
-            integrations: $configPaths === [] && $composerLock === null
-                ? []
-                : $this->integrations->scan($configPaths, $composerLock),
+            integrations: $integrations,
             environment: $environment,
             commit: $commit,
             scannedAt: gmdate('Y-m-d\TH:i:s\Z'),
         );
+    }
+
+    /**
+     * Documents written straight through an Elasticsearch or OpenSearch client.
+     *
+     * Inferred, like everything static analysis produces, so these warn and
+     * never fail a build. The index name is usually a variable or a facade call
+     * rather than a literal, which leaves a placeholder in the pattern and makes
+     * the location honestly unverifiable, and that is still worth reporting: an
+     * index of users nobody has classified is the finding, whether or not we can
+     * name the cluster it sits in.
+     *
+     * @param  list<string>  $sourcePaths
+     * @return list<Location>
+     */
+    private function searchFlowLocations(array $sourcePaths, Subject $subject, string $store): array
+    {
+        if ($sourcePaths === []) {
+            return [];
+        }
+
+        return array_map(
+            static fn (FlowFinding $f): Location => new Location(
+                id: Location::idFor($f->kind, $f->store, $f->pattern),
+                kind: $f->kind,
+                store: $f->store,
+                path: $f->pattern,
+                subject: $subject->type,
+                linkage: Linkage::Inferred,
+                confidence: $f->confidence,
+                classification: Classification::Unclassified,
+                evidence: $f->evidence,
+            ),
+            $this->searchFlows->scan($sourcePaths, $subject, $store),
+        );
+    }
+
+    /**
+     * Indexes the application copies personal data into, from Scout's trait.
+     *
+     * Three shapes, and the difference is what makes the finding usable:
+     *
+     *   - The subject's own model: the person *is* the document, `users/{id}`.
+     *   - A model with a foreign key straight to the subject: the person is a
+     *     field on documents keyed by something else, `comments?user_id={id}`.
+     *   - Anything further away: we can prove the index holds their data and we
+     *     cannot write the query for it, so we say exactly that and let a human
+     *     supply it rather than guessing a column that is not a user id.
+     *
+     * The linkage is deterministic in every case: the trait is not a heuristic,
+     * and an unclassified index of personal data is precisely what should stop a
+     * build.
+     *
+     * @param  array<string, array{column: string, path: list<string>, hops: int}>  $reachable
+     * @param  array<string, list<string>>  $declared  path => evidence
+     * @param  string  $store  The cluster these indexes live in, per the installed driver.
+     * @return list<Location>
+     */
+    private function searchLocations(
+        ModelMap $models,
+        Subject $subject,
+        array $reachable,
+        array $declared,
+        string $store,
+    ): array {
+        $locations = [];
+
+        foreach ($models->all() as $model) {
+            $index = $model->searchIndex();
+
+            if ($index === null) {
+                continue;
+            }
+
+            $evidence = [
+                "{$model->shortName()} uses Laravel\\Scout\\Searchable",
+                $model->searchableAs !== null
+                    ? "searchableAs() names the index '{$index}'"
+                    : "no searchableAs(), so Scout indexes as '{$index}'",
+                $model->searchableFields === []
+                    // The wider exposure, not the narrower one: without the
+                    // method Scout copies the model's whole toArray().
+                    ? 'no toSearchableArray(), so the whole model is indexed'
+                    : 'toSearchableArray() copies '.implode(', ', $model->searchableFields),
+            ];
+
+            if ($model->definedIn !== null) {
+                $evidence[] = "defined in {$model->definedIn}";
+            }
+
+            [$target, $linkage, $note] = $this->searchTarget(
+                $index,
+                $model->table,
+                $subject,
+                $reachable,
+                $declared,
+            );
+
+            if ($linkage === null) {
+                continue;
+            }
+
+            if ($note !== null) {
+                $evidence[] = $note;
+            }
+
+            $locations[] = new Location(
+                id: Location::idFor(LocationKind::SearchIndex, $store, $target->path()),
+                kind: LocationKind::SearchIndex,
+                // The engine behind Scout, when the installed driver named one.
+                // Falls back to 'scout' when it did not, and a policy naming a
+                // connection re-homes the location onto it either way.
+                store: $store,
+                path: $target->path(),
+                subject: $subject->type,
+                linkage: $linkage,
+                confidence: 1.0,
+                classification: Classification::Unclassified,
+                evidence: $evidence,
+            );
+        }
+
+        usort($locations, static fn (Location $a, Location $b): int => $a->path <=> $b->path);
+
+        return $locations;
+    }
+
+    /**
+     * @param  array<string, array{column: string, path: list<string>, hops: int}>  $reachable
+     * @param  array<string, list<string>>  $declared
+     * @return array{0: SearchTarget, 1: ?Linkage, 2: ?string}
+     */
+    private function searchTarget(
+        string $index,
+        string $table,
+        Subject $subject,
+        array $reachable,
+        array $declared,
+    ): array {
+        if ($table === $subject->rootTable()) {
+            return [
+                new SearchTarget($index, documentId: '{id}'),
+                Linkage::SubjectRoot,
+                "indexes {$table}, the subject's own table, so the document id is the subject id",
+            ];
+        }
+
+        $link = $reachable[$table] ?? null;
+
+        // Only a direct foreign key names a column holding the subject's id.
+        // Further out the graph, `column` points at the *next* table along the
+        // path, and querying the index by it would match the wrong people.
+        if ($link !== null && $link['hops'] === 1) {
+            return [
+                new SearchTarget($index, field: $link['column'], value: '{id}'),
+                Linkage::ForeignKey,
+                "{$table}.{$link['column']} references {$subject->rootTable()}",
+            ];
+        }
+
+        foreach ($declared as $path => $evidence) {
+            if (str_starts_with($path, $table.'.')) {
+                return [
+                    new SearchTarget($index, field: substr($path, strlen($table) + 1), value: '{id}'),
+                    Linkage::Relationship,
+                    $evidence[0] ?? 'declared by an Eloquent relationship',
+                ];
+            }
+        }
+
+        if ($link === null) {
+            return [new SearchTarget($index), null, null];
+        }
+
+        return [
+            new SearchTarget($index),
+            Linkage::ForeignKey,
+            sprintf(
+                'indexes %s, %d hops from %s; no column on it holds the subject id, '
+                .'so the query has to be supplied by hand',
+                $table,
+                $link['hops'],
+                $subject->rootTable(),
+            ),
+        ];
     }
 
     /**

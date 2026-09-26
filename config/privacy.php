@@ -44,7 +44,14 @@ return [
         ],
 
         // Stage B: application code to scan for identifiers written outside the
-        // database, cache keys, object-storage paths, Redis keys.
+        // database, cache keys, object-storage paths, Redis keys, and documents
+        // written into a search cluster through the SDK.
+        //
+        // Widen this to wherever your code actually lives. A domain-organised
+        // application keeps the repository that writes users into OpenSearch
+        // well outside app/, and a path that is not scanned reports as an
+        // absence of findings rather than as an absence of scanning:
+        // [app_path(), base_path('src')]
         //
         // Findings from here are always Linkage::Inferred and can only ever
         // warn. PHP interpolates dynamically and applications wrap everything,
@@ -153,7 +160,40 @@ return [
             \PrivacyCI\Verification\Probes\DatabaseProbe::class,
             \PrivacyCI\Verification\Probes\StorageProbe::class,
             \PrivacyCI\Verification\Probes\CacheProbe::class,
+            \PrivacyCI\Verification\Probes\SearchProbe::class,
             // \PrivacyCI\Verification\Probes\RedisProbe::class,
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Search
+    |---------------------------------------------------------------------------
+    |
+    | The cluster your search indexes live in. Used both by the generated
+    | deletion handler and by SearchProbe, deliberately the same client, so that
+    | what erasure removed and what verification looks for cannot drift apart.
+    |
+    | Elasticsearch and OpenSearch are both supported and neither is a
+    | dependency of this package: the client is duck-typed, so bind whichever
+    | SDK you already have. Point a connection at a class the container can
+    | resolve, or at a closure returning a configured client.
+    |
+    | Note that Scout is an abstraction over engines, not an engine. Scout ships
+    | Algolia, Meilisearch, Typesense, database and collection; Elasticsearch has
+    | not been first-party since Scout 3, so applications reach it through a
+    | community driver or the SDK directly. Discovery reads `use Searchable` to
+    | find *which models* are indexed whatever the engine, and reads your
+    | installed driver to work out *which cluster* that is. On Algolia or
+    | Meilisearch the indexes are still discovered and still classified, and
+    | verification reports them UNCHECKED until a client for them is bound here.
+    |
+    */
+
+    'search' => [
+        'clients' => [
+            // 'default' => \Elastic\Elasticsearch\Client::class,
+            // 'opensearch' => \OpenSearch\Client::class,
         ],
     ],
 

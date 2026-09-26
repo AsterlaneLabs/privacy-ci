@@ -28,8 +28,8 @@ final class IntegrationScanner
         'phpredis' => ['Redis', true],
         'memcached' => ['Memcached', true],
         's3' => ['S3', true],
-        'elasticsearch' => ['Elasticsearch', false],
-        'opensearch' => ['OpenSearch', false],
+        'elasticsearch' => ['Elasticsearch', true],
+        'opensearch' => ['OpenSearch', true],
         'algolia' => ['Algolia', false],
         'meilisearch' => ['Meilisearch', false],
         'typesense' => ['Typesense', false],
@@ -54,19 +54,41 @@ final class IntegrationScanner
         'sentry' => ['Sentry', false],
     ];
 
-    /** Composer package => kind. Stronger evidence than a config string. */
+    /**
+     * Composer package => [kind, supported]. Stronger evidence than a config string.
+     *
+     * The Scout drivers matter more than they look. Scout ships Algolia,
+     * Meilisearch, Typesense, database and collection; Elasticsearch has not been
+     * a first-party engine since Scout 3, so every Laravel application indexing
+     * into Elasticsearch or OpenSearch is doing it through one of the community
+     * drivers below or through the SDK directly. Which one is installed is the
+     * only thing in the repository that says which cluster `use Searchable` puts
+     * personal data into, and therefore whether we can verify the erasure.
+     *
+     * @var array<string, array{0: string, 1: bool}>
+     */
     private const PACKAGES = [
-        'laravel/scout' => 'Laravel Scout',
-        'predis/predis' => 'Redis',
-        'aws/aws-sdk-php' => 'AWS',
-        'league/flysystem-aws-s3-v3' => 'S3',
-        'stripe/stripe-php' => 'Stripe',
-        'laravel/cashier' => 'Stripe',
-        'algolia/algoliasearch-client-php' => 'Algolia',
-        'meilisearch/meilisearch-php' => 'Meilisearch',
-        'elasticsearch/elasticsearch' => 'Elasticsearch',
-        'google/cloud-bigquery' => 'BigQuery',
-        'sentry/sentry-laravel' => 'Sentry',
+        'laravel/scout' => ['Laravel Scout', true],
+        'predis/predis' => ['Redis', true],
+        'aws/aws-sdk-php' => ['AWS', false],
+        'league/flysystem-aws-s3-v3' => ['S3', true],
+        'stripe/stripe-php' => ['Stripe', false],
+        'laravel/cashier' => ['Stripe', false],
+        'algolia/algoliasearch-client-php' => ['Algolia', false],
+        'meilisearch/meilisearch-php' => ['Meilisearch', false],
+        'elasticsearch/elasticsearch' => ['Elasticsearch', true],
+        'opensearch-project/opensearch-php' => ['OpenSearch', true],
+        'matchish/laravel-scout-elasticsearch' => ['Elasticsearch', true],
+        'babenkoivan/elastic-scout-driver' => ['Elasticsearch', true],
+        'jeroen-g/explorer' => ['Elasticsearch', true],
+        'google/cloud-bigquery' => ['BigQuery', false],
+        'sentry/sentry-laravel' => ['Sentry', false],
+    ];
+
+    /** Kind => the connection name a probe and a generated handler should use. */
+    private const SEARCH_CONNECTIONS = [
+        'Elasticsearch' => 'elasticsearch',
+        'OpenSearch' => 'opensearch',
     ];
 
     private readonly Parser $parser;
@@ -108,8 +130,7 @@ final class IntegrationScanner
         if ($composerLock !== null && is_file($composerLock)) {
             foreach ($this->lockPackages($composerLock) as $package) {
                 if (isset(self::PACKAGES[$package])) {
-                    $kind = self::PACKAGES[$package];
-                    $supported = self::MARKERS[strtolower($kind)][1] ?? false;
+                    [$kind, $supported] = self::PACKAGES[$package];
                     $found[$kind] = new Integration($kind, $package, $supported);
                 }
             }
@@ -119,6 +140,33 @@ final class IntegrationScanner
         usort($result, static fn (Integration $a, Integration $b): int => $a->kind <=> $b->kind);
 
         return $result;
+    }
+
+    /**
+     * Which cluster the application's search indexes actually live in.
+     *
+     * Scout is an abstraction over engines, not an engine, so `use Searchable`
+     * alone says a model is indexed and not where. This reads the answer off the
+     * driver that is installed, which is what lets discovery record a connection
+     * the probe can then reach.
+     *
+     * Null when the evidence is absent or contradictory: an application with both
+     * SDKs installed is one we should not guess about, and a wrong connection
+     * name produces a confident UNCHECKED rather than an honest one.
+     *
+     * @param  list<Integration>  $integrations
+     */
+    public static function searchConnection(array $integrations): ?string
+    {
+        $found = [];
+
+        foreach ($integrations as $integration) {
+            if (isset(self::SEARCH_CONNECTIONS[$integration->kind])) {
+                $found[self::SEARCH_CONNECTIONS[$integration->kind]] = true;
+            }
+        }
+
+        return count($found) === 1 ? (string) array_key_first($found) : null;
     }
 
     /**
