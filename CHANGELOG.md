@@ -12,7 +12,7 @@ not silently upgrade you to `0.2`.
 The findings manifest carries its own `schema_version`, versioned separately and
 far more slowly, a newer package should still read an older manifest.
 
-## [0.2.0] - 2026-09-24
+## [0.2.0] - 2026-09-26
 
 ### Upgrading from 0.1.x
 
@@ -170,5 +170,6 @@ Two smaller things to know:
 - Laravel 11 is not supported: every 11.x release is subject to a security
   advisory, so Composer refuses to install it.
 
+[0.2.0]: https://github.com/AsterlaneLabs/privacy-ci/releases/tag/v0.2.0
 [0.1.1]: https://github.com/AsterlaneLabs/privacy-ci/releases/tag/v0.1.1
 [0.1.0]: https://github.com/AsterlaneLabs/privacy-ci/releases/tag/v0.1.0
